@@ -1,0 +1,46 @@
+\begin{experiment}
+\textbf{Objective}
+\begin{itemize}
+  \item Use objdump and nm to examine sections and symbols in a relocatable object.
+\end{itemize}
+
+\textbf{Setup requirements}
+\begin{itemize}
+  \item gcc or clang installed.
+  \item binutils tools (objdump, nm).
+\end{itemize}
+
+\textbf{Step-by-step commands}
+\begin{enumerate}
+  \item Build an object file:
+\begin{lstlisting}[language=bash]
+gcc -c -o demo.o demo.c
+\end{lstlisting}
+  \item List sections:
+\begin{lstlisting}[language=bash]
+objdump -h demo.o
+\end{lstlisting}
+  \item Disassemble code:
+\begin{lstlisting}[language=bash]
+objdump -d demo.o
+\end{lstlisting}
+  \item Display symbols:
+\begin{lstlisting}[language=bash]
+nm -C demo.o
+\end{lstlisting}
+\end{enumerate}
+
+\textbf{Expected output explanation}
+\begin{itemize}
+  \item Section headers show size, VMA, and flags.
+  \item Disassembly uses section-relative addresses.
+  \item Symbol output lists global, local, and undefined symbols.
+\end{itemize}
+
+\textbf{Questions for reader}
+\begin{enumerate}
+  \item Which symbols are undefined and why?
+  \item How do .bss and .data differ in size and type?
+  \item Which sections would the linker discard or merge?
+\end{enumerate}
+\end{experiment}

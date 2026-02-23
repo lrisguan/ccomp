@@ -1,0 +1,64 @@
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{ccomp-style}[2026/02/23 C compilation book style]
+
+\RequirePackage[margin=1in]{geometry}
+\RequirePackage{newtxtext}
+\RequirePackage{newtxmath}
+\RequirePackage[T1]{fontenc}
+\RequirePackage{microtype}
+\RequirePackage{hyperref}
+\RequirePackage{xcolor}
+\RequirePackage{listings}
+\RequirePackage{titlesec}
+\RequirePackage{tcolorbox}
+\RequirePackage{hyperref}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  urlcolor=blue,
+  citecolor=blue
+}
+
+\definecolor{ccompbg}{HTML}{F7F7F7}
+\definecolor{ccompborder}{HTML}{D0D0D0}
+
+\lstdefinestyle{ccomp}{
+  backgroundcolor=\color{ccompbg},
+  basicstyle=\ttfamily\small,
+  frame=single,
+  rulecolor=\color{ccompborder},
+  breaklines=true,
+  columns=fullflexible
+}
+\lstset{style=ccomp}
+
+\titleformat{\chapter}[display]
+  {\bfseries\Large}
+  {Chapter \thechapter}
+  {0.5em}
+  {\LARGE}
+
+\newtcolorbox{definition}{
+  colback=white,
+  colframe=ccompborder,
+  title=Definition
+}
+
+\newtcolorbox{example}{
+  colback=white,
+  colframe=ccompborder,
+  title=Example
+}
+
+\newtcolorbox{experiment}{
+  colback=white,
+  colframe=ccompborder,
+  title=Experiment
+}
+
+\newtcolorbox{warning}{
+  colback=white,
+  colframe=ccompborder,
+  title=Warning
+}

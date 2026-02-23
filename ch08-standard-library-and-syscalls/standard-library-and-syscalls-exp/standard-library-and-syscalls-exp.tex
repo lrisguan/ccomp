@@ -1,0 +1,43 @@
+\begin{experiment}
+\textbf{Objective}
+\begin{itemize}
+  \item Use strace to see how libc calls translate into kernel syscalls.
+\end{itemize}
+
+\textbf{Setup requirements}
+\begin{itemize}
+  \item Linux or WSL.
+  \item strace installed.
+\end{itemize}
+
+\textbf{Step-by-step commands}
+\begin{enumerate}
+  \item Create a program that writes to stdout:
+\begin{lstlisting}[language=C]
+#include <stdio.h>
+int main(void) { puts("hello"); return 0; }
+\end{lstlisting}
+  \item Build the program:
+\begin{lstlisting}[language=bash]
+gcc -o hello hello.c
+\end{lstlisting}
+  \item Trace syscalls:
+\begin{lstlisting}[language=bash]
+strace -o trace.txt ./hello
+\end{lstlisting}
+  \item Inspect trace.txt for write and exit calls.
+\end{enumerate}
+
+\textbf{Expected output explanation}
+\begin{itemize}
+  \item puts becomes one or more write syscalls.
+  \item Process termination triggers exit or exit_group.
+\end{itemize}
+
+\textbf{Questions for reader}
+\begin{enumerate}
+  \item Which syscalls appear before main executes?
+  \item How many write calls occur and why?
+  \item How does buffering change the syscall pattern?
+\end{enumerate}
+\end{experiment}

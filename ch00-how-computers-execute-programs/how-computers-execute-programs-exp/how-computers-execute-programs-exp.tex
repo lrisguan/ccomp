@@ -1,0 +1,39 @@
+\begin{experiment}
+\textbf{Objective}
+\begin{itemize}
+  \item Observe how a simple function call maps to stack usage and return control flow.
+\end{itemize}
+
+\textbf{Setup requirements}
+\begin{itemize}
+  \item C compiler (gcc or clang).
+  \item Linux or WSL is recommended for consistent assembly output.
+\end{itemize}
+
+\textbf{Step-by-step commands}
+\begin{enumerate}
+  \item Create a small program:
+\begin{lstlisting}[language=C]
+int add(int a, int b) { return a + b; }
+int main(void) { return add(1, 2); }
+\end{lstlisting}
+  \item Generate assembly with frame pointers:
+\begin{lstlisting}[language=bash]
+gcc -S -fno-omit-frame-pointer -O0 -o demo.s demo.c
+\end{lstlisting}
+  \item Open demo.s and locate the function prologue and epilogue.
+\end{enumerate}
+
+\textbf{Expected output explanation}
+\begin{itemize}
+  \item The prologue sets up a stack frame and preserves the old frame pointer.
+  \item The epilogue restores the frame pointer and returns to the caller.
+\end{itemize}
+
+\textbf{Questions for reader}
+\begin{enumerate}
+  \item Which register holds the frame pointer on your target architecture?
+  \item How are arguments passed into add in the assembly output?
+  \item Where is the return value placed?
+\end{enumerate}
+\end{experiment}

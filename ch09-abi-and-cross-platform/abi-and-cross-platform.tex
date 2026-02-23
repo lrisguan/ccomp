@@ -1,0 +1,34 @@
+\chapter{ABI and Cross-Platform}
+
+\section{Purpose}
+Explain ABI contracts and cross-platform compilation differences.
+
+\section{Outline}
+\begin{enumerate}
+  \item What is an ABI
+  \item Calling conventions in x86\_64 vs AArch64
+  \item Binary compatibility constraints
+  \item ELF vs PE
+  \item Linux vs Windows toolchains
+  \item Cross-compilation toolchains
+\end{enumerate}
+
+\section{Content Plan}
+\begin{itemize}
+  \item ABI as a stable binary interface.
+  \item Register and stack argument passing differences.
+  \item Structure layout, alignment, and endianness effects.
+  \item ELF and PE loader expectations.
+  \item Cross toolchain selection and sysroot use.
+\end{itemize}
+
+\section{Key Terms}
+\begin{itemize}
+  \item ABI
+  \item calling convention
+  \item sysroot
+  \item cross-compilation
+\end{itemize}
+
+\section{Experiment}
+See abi-and-cross-platform-exp/abi-and-cross-platform-exp.tex in this chapter.

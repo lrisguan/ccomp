@@ -1,0 +1,48 @@
+\begin{experiment}
+\textbf{Objective}
+\begin{itemize}
+  \item Build both static and dynamic variants and observe runtime dependencies.
+\end{itemize}
+
+\textbf{Setup requirements}
+\begin{itemize}
+  \item gcc or clang installed.
+  \item ar, ldd available (Linux or WSL recommended).
+\end{itemize}
+
+\textbf{Step-by-step commands}
+\begin{enumerate}
+  \item Create a small library source:
+\begin{lstlisting}[language=C]
+int add(int a, int b) { return a + b; }
+\end{lstlisting}
+  \item Build static and shared libraries:
+\begin{lstlisting}[language=bash]
+gcc -c -fPIC -o add.o add.c
+ar rcs libadd.a add.o
+gcc -shared -o libadd.so add.o
+\end{lstlisting}
+  \item Build static and dynamic executables:
+\begin{lstlisting}[language=bash]
+gcc -o demo_static main.c -L. -ladd -static
+gcc -o demo_dynamic main.c -L. -ladd -Wl,-rpath,'$ORIGIN'
+\end{lstlisting}
+  \item Inspect runtime dependencies:
+\begin{lstlisting}[language=bash]
+ldd demo_dynamic
+\end{lstlisting}
+\end{enumerate}
+
+\textbf{Expected output explanation}
+\begin{itemize}
+  \item The static binary embeds library code and has no libadd.so dependency.
+  \item The dynamic binary records a dependency that the loader resolves at runtime.
+\end{itemize}
+
+\textbf{Questions for reader}
+\begin{enumerate}
+  \item Why might static linking fail on some systems?
+  \item How does rpath affect loader behavior?
+  \item What changes in binary size between the two builds?
+\end{enumerate}
+\end{experiment}

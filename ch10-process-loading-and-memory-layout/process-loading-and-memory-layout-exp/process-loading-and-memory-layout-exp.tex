@@ -1,0 +1,41 @@
+\begin{experiment}
+\textbf{Objective}
+\begin{itemize}
+  \item Observe the runtime memory layout of a process.
+\end{itemize}
+
+\textbf{Setup requirements}
+\begin{itemize}
+  \item Linux or WSL.
+  \item pmap or /proc available.
+\end{itemize}
+
+\textbf{Step-by-step commands}
+\begin{enumerate}
+  \item Build a simple program:
+\begin{lstlisting}[language=bash]
+gcc -o hello hello.c
+\end{lstlisting}
+  \item Run the program in the background and capture its PID:
+\begin{lstlisting}[language=bash]
+./hello & echo $!
+\end{lstlisting}
+  \item Inspect memory maps:
+\begin{lstlisting}[language=bash]
+cat /proc/<PID>/maps
+\end{lstlisting}
+\end{enumerate}
+
+\textbf{Expected output explanation}
+\begin{itemize}
+  \item You will see mappings for text, data, heap, stack, and shared libraries.
+  \item Permissions reveal which regions are executable or writable.
+\end{itemize}
+
+\textbf{Questions for reader}
+\begin{enumerate}
+  \item Which mappings correspond to the main executable?
+  \item Where is the heap located relative to the stack?
+  \item How does ASLR change the addresses between runs?
+\end{enumerate}
+\end{experiment}

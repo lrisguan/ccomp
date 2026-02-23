@@ -1,0 +1,42 @@
+\begin{experiment}
+\textbf{Objective}
+\begin{itemize}
+  \item Observe how macros and includes are expanded in the preprocessor output.
+\end{itemize}
+
+\textbf{Setup requirements}
+\begin{itemize}
+  \item gcc or clang installed.
+  \item A shell environment (Linux, WSL, or MSYS2).
+\end{itemize}
+
+\textbf{Step-by-step commands}
+\begin{enumerate}
+  \item Create a file with macros:
+\begin{lstlisting}[language=C]
+#define SCALE(x) ((x) * 2)
+#define FLAG 1
+#if FLAG
+int value = SCALE(3);
+#endif
+\end{lstlisting}
+  \item Run the preprocessor with macro output:
+\begin{lstlisting}[language=bash]
+gcc -E -dD -o macros.i macros.c
+\end{lstlisting}
+  \item Inspect macros.i and locate the expanded macro lines.
+\end{enumerate}
+
+\textbf{Expected output explanation}
+\begin{itemize}
+  \item Macro definitions appear at the top when using -dD.
+  \item The expansion replaces macro invocations with raw tokens.
+\end{itemize}
+
+\textbf{Questions for reader}
+\begin{enumerate}
+  \item How are nested macros expanded and in what order?
+  \item What happens if FLAG is set to 0?
+  \item Which lines come from system headers and why?
+\end{enumerate}
+\end{experiment}

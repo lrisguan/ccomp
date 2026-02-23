@@ -1,0 +1,48 @@
+\chapter{ELF Format Deep Dive}
+
+\section{Purpose}
+Provide a detailed, field-by-field understanding of the ELF format.
+
+\section{Outline}
+\begin{enumerate}
+  \item ELF header
+  \item Section header table
+  \item Program header table
+  \item Symbol table and string tables
+  \item Relocation entries
+  \item Static vs dynamic ELF
+\end{enumerate}
+
+\section{Content Plan}
+\begin{itemize}
+  \item Identify magic bytes, class, endianness, and ABI fields.
+  \item Section headers: names, offsets, sizes, and flags.
+  \item Program headers: loadable segments and memory mapping.
+  \item Symbol tables: bindings, visibility, and section index.
+  \item Relocations: addends, types, and targets.
+  \item Differences between static and dynamic binaries.
+\end{itemize}
+
+\section{Key Terms}
+\begin{itemize}
+  \item ELF header
+  \item section header table
+  \item program header table
+  \item relocation
+\end{itemize}
+
+\section{Diagrams Planned}
+\begin{figure}[h]
+  \centering
+  \fbox{\parbox{0.9\linewidth}{ELF file layout diagram placeholder.}}
+  \caption{Planned ELF file layout diagram.}
+\end{figure}
+
+\begin{figure}[h]
+  \centering
+  \fbox{\parbox{0.9\linewidth}{Section vs program header mapping diagram placeholder.}}
+  \caption{Planned section vs program header mapping diagram.}
+\end{figure}
+
+\section{Experiment}
+See elf-format-deep-dive-exp/elf-format-deep-dive-exp.tex in this chapter.

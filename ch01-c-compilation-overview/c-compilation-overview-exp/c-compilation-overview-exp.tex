@@ -1,0 +1,52 @@
+\begin{experiment}
+\textbf{Objective}
+\begin{itemize}
+  \item Produce each intermediate artifact and identify the tool responsible for it.
+\end{itemize}
+
+\textbf{Setup requirements}
+\begin{itemize}
+  \item gcc or clang installed.
+  \item Linux or WSL recommended.
+\end{itemize}
+
+\textbf{Step-by-step commands}
+\begin{enumerate}
+  \item Create a minimal program:
+\begin{lstlisting}[language=C]
+#include <stdio.h>
+int main(void) { puts("hi"); return 0; }
+\end{lstlisting}
+  \item Generate preprocessed output:
+\begin{lstlisting}[language=bash]
+gcc -E -o hello.i hello.c
+\end{lstlisting}
+  \item Generate assembly:
+\begin{lstlisting}[language=bash]
+gcc -S -o hello.s hello.c
+\end{lstlisting}
+  \item Assemble to object file:
+\begin{lstlisting}[language=bash]
+gcc -c -o hello.o hello.s
+\end{lstlisting}
+  \item Link to executable:
+\begin{lstlisting}[language=bash]
+gcc -o hello hello.o
+\end{lstlisting}
+\end{enumerate}
+
+\textbf{Expected output explanation}
+\begin{itemize}
+  \item hello.i is expanded C after preprocessing.
+  \item hello.s is target assembly.
+  \item hello.o is a relocatable object file.
+  \item hello is the final linked executable.
+\end{itemize}
+
+\textbf{Questions for reader}
+\begin{enumerate}
+  \item Which step introduces symbols that the linker resolves?
+  \item How large is each artifact and why does the size change?
+  \item Which tools can be swapped out in this pipeline?
+\end{enumerate}
+\end{experiment}

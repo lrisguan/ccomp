@@ -1,0 +1,37 @@
+\chapter{Compilation Internals}
+
+\section{Purpose}
+Detail how source code becomes optimized machine-oriented assembly.
+
+\section{Outline}
+\begin{enumerate}
+  \item Lexical analysis
+  \item Parsing and grammar
+  \item AST construction
+  \item Intermediate representation (IR)
+  \item Optimization passes
+  \item Code generation
+  \item Optimization flags (-O0, -O1, -O2, -O3)
+\end{enumerate}
+
+\section{Content Plan}
+\begin{itemize}
+  \item Tokenization and error reporting.
+  \item Parser output and syntax trees.
+  \item AST vs IR roles and transformations.
+  \item Optimization pipeline: local, global, SSA-based.
+  \item Code generation: instruction selection, register allocation.
+  \item Mapping high-level constructs to assembly idioms.
+  \item Flag effects on debugability and performance.
+\end{itemize}
+
+\section{Key Terms}
+\begin{itemize}
+  \item AST
+  \item IR
+  \item SSA
+  \item register allocation
+\end{itemize}
+
+\section{Experiment}
+See compilation-internals-exp/compilation-internals-exp.tex in this chapter.

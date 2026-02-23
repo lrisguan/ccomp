@@ -1,0 +1,33 @@
+\chapter{Standard Library and Syscalls}
+
+\section{Purpose}
+Distinguish C standard library responsibilities from kernel system calls.
+
+\section{Outline}
+\begin{enumerate}
+  \item C standard library vs system calls
+  \item glibc role and layering
+  \item User mode vs kernel mode
+  \item syscall instruction path
+  \item strace at a conceptual level
+\end{enumerate}
+
+\section{Content Plan}
+\begin{itemize}
+  \item Library wrappers and ABI compliance.
+  \item syscall numbers, calling conventions, and return values.
+  \item Error reporting via errno.
+  \item Why libc adds buffering and higher-level APIs.
+  \item Observing syscalls without oversimplifying the boundary.
+\end{itemize}
+
+\section{Key Terms}
+\begin{itemize}
+  \item libc
+  \item syscall
+  \item user mode
+  \item kernel mode
+\end{itemize}
+
+\section{Experiment}
+See standard-library-and-syscalls-exp/standard-library-and-syscalls-exp.tex in this chapter.

@@ -1,0 +1,33 @@
+\chapter{Process Loading and Memory Layout}
+
+\section{Purpose}
+Describe how the OS loads an executable and maps it into virtual memory.
+
+\section{Outline}
+\begin{enumerate}
+  \item Loader responsibilities
+  \item Virtual memory fundamentals
+  \item Text, data, heap, stack layout
+  \item Dynamic linker loading
+  \item mmap and shared libraries
+\end{enumerate}
+
+\section{Content Plan}
+\begin{itemize}
+  \item Loader reads program headers and maps segments.
+  \item Virtual memory pages, permissions, and ASLR.
+  \item Typical process layout and growth directions.
+  \item Dynamic linker responsibilities during startup.
+  \item mmap usage for shared objects and anonymous memory.
+\end{itemize}
+
+\section{Key Terms}
+\begin{itemize}
+  \item virtual memory
+  \item program header
+  \item dynamic linker
+  \item mmap
+\end{itemize}
+
+\section{Experiment}
+See process-loading-and-memory-layout-exp/process-loading-and-memory-layout-exp.tex in this chapter.

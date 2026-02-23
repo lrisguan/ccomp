@@ -1,0 +1,40 @@
+\begin{experiment}
+\textbf{Objective}
+\begin{itemize}
+  \item Build an AArch64 binary on an x86\_64 host and inspect the output format.
+\end{itemize}
+
+\textbf{Setup requirements}
+\begin{itemize}
+  \item Cross toolchain (for example, aarch64-linux-gnu-gcc).
+  \item file utility available.
+\end{itemize}
+
+\textbf{Step-by-step commands}
+\begin{enumerate}
+  \item Write a simple program:
+\begin{lstlisting}[language=C]
+int main(void) { return 0; }
+\end{lstlisting}
+  \item Cross-compile:
+\begin{lstlisting}[language=bash]
+aarch64-linux-gnu-gcc -o hello_arm64 hello.c
+\end{lstlisting}
+  \item Inspect the binary type:
+\begin{lstlisting}[language=bash]
+file hello_arm64
+\end{lstlisting}
+\end{enumerate}
+
+\textbf{Expected output explanation}
+\begin{itemize}
+  \item The binary is marked as AArch64 and cannot run on x86\_64 without emulation.
+\end{itemize}
+
+\textbf{Questions for reader}
+\begin{enumerate}
+  \item What ABI does the toolchain target by default?
+  \item Which sysroot is used and why does it matter?
+  \item What changes if you build a PIE binary?
+\end{enumerate}
+\end{experiment}

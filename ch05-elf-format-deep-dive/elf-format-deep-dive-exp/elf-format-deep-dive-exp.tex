@@ -1,0 +1,51 @@
+\begin{experiment}
+\textbf{Objective}
+\begin{itemize}
+  \item Use readelf to examine the ELF header, sections, segments, symbols, and relocations.
+\end{itemize}
+
+\textbf{Setup requirements}
+\begin{itemize}
+  \item gcc or clang installed.
+  \item binutils tools (readelf).
+\end{itemize}
+
+\textbf{Step-by-step commands}
+\begin{enumerate}
+  \item Build a small executable:
+\begin{lstlisting}[language=bash]
+gcc -o hello hello.c
+\end{lstlisting}
+  \item Inspect the ELF header:
+\begin{lstlisting}[language=bash]
+readelf -h hello
+\end{lstlisting}
+  \item Inspect section headers:
+\begin{lstlisting}[language=bash]
+readelf -S hello
+\end{lstlisting}
+  \item Inspect program headers:
+\begin{lstlisting}[language=bash]
+readelf -l hello
+\end{lstlisting}
+  \item Inspect symbols and relocations:
+\begin{lstlisting}[language=bash]
+readelf -s -r hello
+\end{lstlisting}
+\end{enumerate}
+
+\textbf{Expected output explanation}
+\begin{itemize}
+  \item The ELF header identifies class, endianness, and ABI.
+  \item Section headers show how data is organized.
+  \item Program headers show loadable segments.
+  \item Symbol and relocation tables show linkage metadata.
+\end{itemize}
+
+\textbf{Questions for reader}
+\begin{enumerate}
+  \item Which sections are mapped into memory at runtime?
+  \item Why do some binaries have no relocation entries?
+  \item How does a PIE binary change the program headers?
+\end{enumerate}
+\end{experiment}

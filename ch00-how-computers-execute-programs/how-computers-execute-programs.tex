@@ -1,0 +1,50 @@
+\chapter{How Computers Execute Programs}
+
+\section{Purpose}
+Establish the CPU and memory execution model that motivates later compilation details.
+
+\section{Outline}
+\begin{enumerate}
+  \item CPU execution model and architectural state
+  \item Instruction cycle: fetch, decode, execute
+  \item Registers and register file roles
+  \item Memory model and addressing
+  \item Stack and function call mechanics
+  \item Calling conventions overview
+  \item Transition to ABI discussion
+\end{enumerate}
+
+\section{Content Plan}
+\begin{itemize}
+  \item CPU execution model: instructions update architectural state and memory.
+  \item Instruction cycle: control flow, sequencing, and side effects.
+  \item Registers: general purpose, PC, SP, flags, callee vs caller saved.
+  \item Memory model: byte addressing, alignment, endianness.
+  \item Stack mechanics: frame layout, prologue and epilogue, return address.
+  \item Calling conventions: argument passing, return values, stack cleanup.
+  \item ABI bridge: why a stable contract is required.
+\end{itemize}
+
+\section{Key Terms}
+\begin{itemize}
+  \item instruction pointer
+  \item stack frame
+  \item calling convention
+  \item ABI
+\end{itemize}
+
+\section{Diagrams Planned}
+\begin{figure}[h]
+  \centering
+  \fbox{\parbox{0.9\linewidth}{CPU state and instruction cycle diagram placeholder.}}
+  \caption{Planned CPU state and instruction cycle diagram.}
+\end{figure}
+
+\begin{figure}[h]
+  \centering
+  \fbox{\parbox{0.9\linewidth}{Stack frame layout diagram placeholder.}}
+  \caption{Planned stack frame layout diagram.}
+\end{figure}
+
+\section{Experiment}
+See how-computers-execute-programs-exp/how-computers-execute-programs-exp.tex in this chapter.

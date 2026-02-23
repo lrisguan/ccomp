@@ -1,0 +1,40 @@
+\chapter{C Compilation Overview}
+
+\section{Purpose}
+Provide a complete map of the compilation pipeline from source to executable.
+
+\section{Outline}
+\begin{enumerate}
+  \item Pipeline stages and artifacts
+  \item .c to .i preprocessing
+  \item .i to .s compilation
+  \item .s to .o assembly
+  \item .o to executable linking
+  \item Toolchain components and roles
+\end{enumerate}
+
+\section{Content Plan}
+\begin{itemize}
+  \item Pipeline overview with artifact boundaries.
+  \item Stage responsibilities: compiler, assembler, linker.
+  \item Common drivers: gcc, clang, as, ld.
+  \item Why separation matters for debugging and optimization.
+\end{itemize}
+
+\section{Key Terms}
+\begin{itemize}
+  \item compilation pipeline
+  \item translation unit
+  \item assembler
+  \item linker
+\end{itemize}
+
+\section{Diagrams Planned}
+\begin{figure}[h]
+  \centering
+  \fbox{\parbox{0.9\linewidth}{End-to-end pipeline diagram placeholder.}}
+  \caption{Planned compilation pipeline diagram.}
+\end{figure}
+
+\section{Experiment}
+See c-compilation-overview-exp/c-compilation-overview-exp.tex in this chapter.

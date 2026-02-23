@@ -1,0 +1,48 @@
+\begin{experiment}
+\textbf{Objective}
+\begin{itemize}
+  \item Observe how strong and weak symbols are resolved at link time.
+\end{itemize}
+
+\textbf{Setup requirements}
+\begin{itemize}
+  \item gcc or clang installed.
+  \item nm for symbol inspection.
+\end{itemize}
+
+\textbf{Step-by-step commands}
+\begin{enumerate}
+  \item Create two translation units:
+\begin{lstlisting}[language=C]
+// a.c
+__attribute__((weak)) int value(void) { return 1; }
+\end{lstlisting}
+\begin{lstlisting}[language=C]
+// b.c
+int value(void) { return 2; }
+int main(void) { return value(); }
+\end{lstlisting}
+  \item Compile and link:
+\begin{lstlisting}[language=bash]
+gcc -c a.c b.c
+gcc -o demo a.o b.o
+\end{lstlisting}
+  \item Inspect symbols:
+\begin{lstlisting}[language=bash]
+nm -C demo | grep value
+\end{lstlisting}
+\end{enumerate}
+
+\textbf{Expected output explanation}
+\begin{itemize}
+  \item The strong definition in b.c overrides the weak definition in a.c.
+  \item The resulting executable contains a single value symbol.
+\end{itemize}
+
+\textbf{Questions for reader}
+\begin{enumerate}
+  \item What happens if the strong definition is removed?
+  \item How does the linker report multiple strong definitions?
+  \item How do weak symbols affect library design?
+\end{enumerate}
+\end{experiment}

@@ -1,0 +1,46 @@
+\begin{experiment}
+\textbf{Objective}
+\begin{itemize}
+  \item Observe how optimization levels change the generated assembly.
+\end{itemize}
+
+\textbf{Setup requirements}
+\begin{itemize}
+  \item gcc or clang installed.
+  \item Linux or WSL recommended.
+\end{itemize}
+
+\textbf{Step-by-step commands}
+\begin{enumerate}
+  \item Create a small loop-based program:
+\begin{lstlisting}[language=C]
+int sum(int *a, int n) {
+  int s = 0;
+  for (int i = 0; i < n; i++) s += a[i];
+  return s;
+}
+\end{lstlisting}
+  \item Generate assembly at O0:
+\begin{lstlisting}[language=bash]
+gcc -S -O0 -o sum_O0.s sum.c
+\end{lstlisting}
+  \item Generate assembly at O2:
+\begin{lstlisting}[language=bash]
+gcc -S -O2 -o sum_O2.s sum.c
+\end{lstlisting}
+  \item Compare the two outputs.
+\end{enumerate}
+
+\textbf{Expected output explanation}
+\begin{itemize}
+  \item O0 keeps a straightforward translation with many loads and stores.
+  \item O2 may unroll, vectorize, or keep values in registers longer.
+\end{itemize}
+
+\textbf{Questions for reader}
+\begin{enumerate}
+  \item Which instructions disappear at O2 and why?
+  \item How does register allocation differ between the outputs?
+  \item What optimizations would be risky for debugging?
+\end{enumerate}
+\end{experiment}
