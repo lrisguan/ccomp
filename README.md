@@ -1,4 +1,6 @@
-# Deep Dive into the C Compilation Process: From Source Code to Machine Execution
+# ccomp 
+
+Deep Dive into the C Compilation Process: From Source Code to Machine Execution
 
 ## Project motivation
 This project provides a rigorous, systems-level explanation of how C source code becomes machine-executable programs. It focuses on real toolchains, binary formats, and runtime behavior without oversimplifying the underlying mechanisms.
