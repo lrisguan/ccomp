@@ -40,5 +40,10 @@ Learners who want a precise, low-level view of how C programs are built and exec
 - Prefer small, focused changes with clear rationales.
 - Add experiments that are reproducible with standard toolchains.
 
+## Note
+> [!Important]
+> Most of the work is doing by openclaw(claude), copilot formulate a detailed 
+> plan rather I only concept the outline
+
 ## License suggestion
 MIT
