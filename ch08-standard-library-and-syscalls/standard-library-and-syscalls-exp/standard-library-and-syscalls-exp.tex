@@ -1,43 +1,80 @@
-\begin{experiment}
-\textbf{Objective}
+\section{Experiment: Standard Library and Syscalls}
+
+\subsection{Objective}
+Explore the relationship between C standard library functions and system calls.
+
+\subsection{Setup Requirements}
 \begin{itemize}
-  \item Use strace to see how libc calls translate into kernel syscalls.
+\item GCC compiler
+\item strace tool
+\item Linux environment
 \end{itemize}
 
-\textbf{Setup requirements}
-\begin{itemize}
-  \item Linux or WSL.
-  \item strace installed.
-\end{itemize}
+\subsection{Part 1: Tracing System Calls}
 
-\textbf{Step-by-step commands}
-\begin{enumerate}
-  \item Create a program that writes to stdout:
+Trace a simple program:
+
+\begin{lstlisting}[language=bash]
+strace ./simple_program
+strace -c ./simple_program
+\end{lstlisting}
+
+\subsection{Part 2: Direct Syscalls}
+
+Make system calls directly:
+
+\begin{lstlisting}[language=C]
+#include <unistd.h>
+#include <sys/syscall.h>
+
+int main(void) {
+    // Using syscall wrapper
+    syscall(SYS_write, 1, "Hello\n", 6);
+    
+    // Using inline assembly (x86-64)
+    asm volatile (
+        "mov $1, %%rax\n"
+        "mov $1, %%rdi\n"
+        "syscall\n"
+        : : "S"("Hello\n"), "d"(6)
+        : "rax", "rdi"
+    );
+    return 0;
+}
+\end{lstlisting}
+
+\subsection{Part 3: stdio vs write}
+
+Compare buffered I/O with direct writes:
+
 \begin{lstlisting}[language=C]
 #include <stdio.h>
-int main(void) { puts("hello"); return 0; }
-\end{lstlisting}
-  \item Build the program:
-\begin{lstlisting}[language=bash]
-gcc -o hello hello.c
-\end{lstlisting}
-  \item Trace syscalls:
-\begin{lstlisting}[language=bash]
-strace -o trace.txt ./hello
-\end{lstlisting}
-  \item Inspect trace.txt for write and exit calls.
-\end{enumerate}
+#include <unistd.h>
 
-\textbf{Expected output explanation}
-\begin{itemize}
-  \item puts becomes one or more write syscalls.
-  \item Process termination triggers exit or exit_group.
-\end{itemize}
+int main(void) {
+    // stdio (buffered)
+    printf("Buffered output\n");
+    
+    // Direct syscall (unbuffered)
+    write(1, "Direct output\n", 14);
+    
+    return 0;
+}
+\end{lstlisting}
 
-\textbf{Questions for reader}
+\subsection{Part 4: Memory Allocation}
+
+Trace memory allocation:
+
+\begin{lstlisting}[language=bash]
+strace -e trace=brk,mmap ./malloc_program
+\end{lstlisting}
+
+\subsection{Questions for Reader}
+
 \begin{enumerate}
-  \item Which syscalls appear before main executes?
-  \item How many write calls occur and why?
-  \item How does buffering change the syscall pattern?
+\item Which system calls does \texttt{printf} use internally?
+\item What is the difference between \texttt{write} and \texttt{fwrite}?
+\item How does the C library implement buffered I/O?
+\item What system calls are used for memory allocation?
 \end{enumerate}
-\end{experiment}

@@ -14,7 +14,7 @@ $(CHAPTERS_TEX): $(CHAPTERS)
 
 $(DIST)/ccomp-book.pdf: $(TEX) $(CHAPTERS_TEX) ccomp-style.sty
 	@mkdir -p $(DIST)
-	$(LATEXMK) -pdf -interaction=nonstopmode -halt-on-error -outdir=$(DIST) $(TEX)
+	$(LATEXMK) -xelatex -interaction=nonstopmode -halt-on-error -outdir=$(DIST) $(TEX)
 	@if [ -f "$(DIST)/ccomp.pdf" ]; then mv "$(DIST)/ccomp.pdf" "$(DIST)/ccomp-book.pdf"; fi
 
 clean:

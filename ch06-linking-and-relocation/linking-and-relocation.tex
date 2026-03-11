@@ -1,35 +1,546 @@
 \chapter{Linking and Relocation}
 
-\section{Purpose}
-Explain how the linker resolves symbols and applies relocations.
+\section{Introduction}
 
-\section{Outline}
+The \textbf{linker} is the final stage of the build process, combining object files and libraries into a single executable or library. It resolves symbol references, applies relocations, and produces the final binary that can be loaded and executed.
+
+Understanding linking helps you:
+\begin{itemize}
+    \item Debug "undefined symbol" and "multiple definition" errors
+    \item Organize code across multiple files effectively
+    \item Understand static vs. dynamic linking tradeoffs
+    \item Optimize build times and binary sizes
+\end{itemize}
+
+In this chapter, we'll explore the complete linking process from object files to executable.
+
+\section{What is Linking?}
+
+\subsection{The Linker's Role}
+
+When you compile multiple source files, each produces a separate object file. These object files are incomplete—they contain references to symbols defined in other files. The linker's job is to:
+
 \begin{enumerate}
-  \item Symbol resolution rules
-  \item Strong vs weak symbols
-  \item Relocation process
-  \item Static linking flow
-  \item Library search order
-  \item Common linking errors
+    \item \textbf{Collect}: Gather all object files and libraries
+    \item \textbf{Resolve}: Match symbol references with definitions
+    \item \textbf{Relocate}: Adjust addresses based on final layout
+    \item \textbf{Output}: Produce a single executable or library
 \end{enumerate}
 
-\section{Content Plan}
+\subsection{Why Separate Linking?}
+
+You might wonder: why not compile everything together? Separation provides:
 \begin{itemize}
-  \item Resolution across multiple object files.
-  \item Weak symbol precedence and overrides.
-  \item Relocation entries and address fixing.
-  \item Static linking of archives and object extraction.
-  \item Search order for -L and -l.
-  \item Typical errors: undefined, multiple definition, missing libs.
+    \item \textbf{Incremental builds}: Only recompile changed files
+    \item \textbf{Separate compilation}: Teams can work independently
+    \item \textbf{Code reuse}: Libraries can be linked into many programs
+    \item \textbf{Modularity}: Clear interfaces between components
 \end{itemize}
 
-\section{Key Terms}
+\section{Symbol Resolution}
+
+\subsection{The Symbol Resolution Problem}
+
+Each object file has:
 \begin{itemize}
-  \item symbol resolution
-  \item relocation
-  \item weak symbol
-  \item archive
+    \item \textbf{Defined symbols}: Functions and variables it provides
+    \item \textbf{Undefined symbols}: References to external functions/variables
 \end{itemize}
 
-\section{Experiment}
-See linking-and-relocation-exp/linking-and-relocation-exp.tex in this chapter.
+The linker must ensure every undefined symbol has exactly one definition.
+
+\subsection{Symbol Types and Precedence}
+
+\textbf{Strong Symbols}: Functions, initialized global variables
+
+\textbf{Weak Symbols}: Symbols declared with \texttt{\_\_attribute\_\_((weak))}
+
+Resolution rules:
+\begin{enumerate}
+    \item Multiple strong symbols with same name → \textbf{error}
+    \item One strong symbol, multiple weak symbols → \textbf{use strong}
+    \item Multiple weak symbols → \textbf{arbitrary choice}
+\end{enumerate}
+
+\begin{lstlisting}[language=C]
+// file1.c
+int global_var = 10;           // Strong symbol
+void foo(void) { }             // Strong symbol
+
+// file2.c
+int global_var;                // Weak symbol (tentative definition)
+__attribute__((weak)) void foo(void) { }  // Weak symbol
+
+// Linker chooses file1.c's definitions (strong wins)
+\end{lstlisting}
+
+\subsection{Common Linker Errors}
+
+\textbf{Undefined Symbol}:
+\begin{verbatim}
+/usr/bin/ld: /tmp/ccXXXX.o: in function `main':
+main.c:(.text+0x15): undefined reference to `missing_function'
+collect2: error: ld returned 1 exit status
+\end{verbatim}
+
+Cause: Referenced symbol not defined in any linked file or library.
+
+\textbf{Multiple Definition}:
+\begin{verbatim}
+/usr/bin/ld: /tmp/ccYYYY.o:(.data+0x0): multiple definition of `global_var'
+/usr/bin/ld: /tmp/ccXXXX.o:(.data+0x0): first defined here
+collect2: error: ld returned 1 exit status
+\end{verbatim}
+
+Cause: Symbol defined in multiple object files.
+
+\textbf{Solutions}:
+\begin{itemize}
+    \item For undefined: Add the defining file/library to link command
+    \item For multiple: Use \texttt{static} for file-local variables, or \texttt{extern} declarations
+\end{itemize}
+
+\section{Relocation}
+
+\subsection{What is Relocation?}
+
+Object files are compiled as if they start at address 0. The linker must adjust all addresses to reflect the final memory layout. This process is \textbf{relocation}.
+
+\subsection{Relocation Types}
+
+Different relocation types specify how to compute the final value:
+
+\textbf{Absolute Relocation}: Store the symbol's actual address
+\begin{verbatim}
+R_X86_64_64: Store full 64-bit address
+\end{verbatim}
+
+\textbf{PC-Relative Relocation}: Store the offset from current instruction
+\begin{verbatim}
+R_X86_64_PC32: Store (symbol_address - current_address)
+R_X86_64_PLT32: Store (PLT_entry - current_address)
+\end{verbatim}
+
+\textbf{GOT-Relative}: Store offset to GOT entry
+\begin{verbatim}
+R_X86_64_GOTPCREL: Store (GOT_entry - current_address)
+\end{verbatim}
+
+\subsection{Relocation Process}
+
+For each relocation entry in object files:
+
+\begin{enumerate}
+    \item Find the target symbol's final address
+    \item Compute the relocation value based on type
+    \item Write the value to the specified offset in the output
+\end{enumerate}
+
+\subsection{Viewing Relocations}
+
+\begin{lstlisting}[language=bash]
+# In object files (before linking)
+readelf -r object.o
+
+# In final executable (fewer, for dynamic linking)
+readelf -r executable
+\end{lstlisting}
+
+\section{The Linking Process in Detail}
+
+\subsection{Linker Input Processing}
+
+The linker processes inputs in order:
+
+\begin{lstlisting}[language=bash]
+gcc main.o utils.o -lm -o program
+\end{lstlisting}
+
+Order matters for static libraries:
+\begin{verbatim}
+1. Process main.o: collect undefined symbols (utils functions)
+2. Process utils.o: provides utils functions, may add undefined symbols
+3. Process -lm (libm.a): only extract needed objects
+\end{verbatim}
+
+\textbf{Critical rule}: Static libraries should come after files that use them:
+\begin{lstlisting}[language=bash]
+# Wrong: linker hasn't seen the undefined symbols yet
+gcc -lm main.o -o program   # May fail to find math functions
+
+# Correct: main.o's undefined symbols trigger libm extraction
+gcc main.o -lm -o program
+\end{lstlisting}
+
+\subsection{Section Merging}
+
+The linker combines sections from all inputs:
+
+\begin{verbatim}
+Input A:        Input B:        Output:
+.text (100)     .text (200)     .text (300)
+.rodata (50)    .rodata (30)    .rodata (80)
+.data (20)      .data (40)      .data (60)
+.bss (10)       .bss (15)       .bss (25)
+\end{verbatim}
+
+Sections are merged by name and type, maintaining alignment requirements.
+
+\subsection{Address Assignment}
+
+The linker assigns virtual addresses to all sections:
+
+\begin{verbatim}
+Default layout (simplified):
+0x400000: .text (code)
+0x600000: .rodata (read-only data)
+0x800000: .data (initialized data)
+0x800XXX: .bss (uninitialized data)
+\end{verbatim}
+
+The actual layout is determined by:
+\begin{itemize}
+    \item Linker script (default or custom)
+    \item Section alignment requirements
+    \item Memory protection constraints
+\end{itemize}
+
+\section{Static Linking}
+
+\subsection{What is Static Linking?}
+
+Static linking embeds library code directly into the executable:
+
+\begin{lstlisting}[language=bash]
+# Create a static library
+ar rcs libmylib.a file1.o file2.o file3.o
+
+# Link statically with the library
+gcc main.o -L. -lmylib -o program
+
+# Or link completely static
+gcc -static main.o -o program
+\end{lstlisting}
+
+\subsection{Static Library Format}
+
+Static libraries (\texttt{.a} files) are \textbf{archives} containing multiple object files:
+
+\begin{verbatim}
+libmylib.a:
+├── file1.o
+├── file2.o
+└── file3.o
+
+# View contents
+ar -t libmylib.a
+ar -x libmylib.a   # Extract all .o files
+\end{verbatim}
+
+\subsection{Selective Linking}
+
+The linker only extracts objects that satisfy undefined symbols:
+
+\begin{verbatim}
+libmylib.a:
+├── string_utils.o (defines: str_lower, str_upper)
+├── math_utils.o   (defines: add, subtract)
+└── file_utils.o   (defines: read_file, write_file)
+
+main.o references: str_lower, add
+
+Linker extracts: string_utils.o, math_utils.o
+Ignores: file_utils.o (no referenced symbols)
+\end{verbatim}
+
+This prevents unnecessary code bloat.
+
+\subsection{Pros and Cons of Static Linking}
+
+\textbf{Advantages}:
+\begin{itemize}
+    \item Self-contained executable (no external dependencies)
+    \item Predictable behavior (library version is fixed)
+    \item No runtime linking overhead
+\end{itemize}
+
+\textbf{Disadvantages}:
+\begin{itemize}
+    \item Larger executables
+    \item Memory inefficiency (each program has its own copy)
+    \item Updates require recompilation
+    \item Security updates harder to deploy
+\end{itemize}
+
+\section{Dynamic Linking}
+
+\subsection{What is Dynamic Linking?}
+
+Dynamic linking defers library resolution to runtime:
+
+\begin{lstlisting}[language=bash]
+# Create a shared library
+gcc -shared -fPIC -o libmylib.so file1.c file2.c
+
+# Link against shared library
+gcc main.c -L. -lmylib -o program
+
+# At runtime
+LD_LIBRARY_PATH=. ./program
+\end{lstlisting}
+
+\subsection{Position-Independent Code (PIC)}
+
+Shared libraries must be position-independent—they can load at any address:
+
+\begin{lstlisting}[language=bash]
+# Compile with -fPIC
+gcc -fPIC -c file.c -o file.o
+
+# Create shared library
+gcc -shared file.o -o libfile.so
+\end{lstlisting}
+
+PIC uses relative addressing and the GOT.
+
+\subsection{The Dynamic Linker}
+
+The dynamic linker (\texttt{ld.so}) runs when the program starts:
+
+\begin{enumerate}
+    \item Read the program's dynamic section
+    \item Find needed libraries (DT\_NEEDED entries)
+    \item Load libraries into memory
+    \item Resolve symbols (lazily or eagerly)
+    \item Update GOT entries
+\end{enumerate}
+
+\begin{lstlisting}[language=bash]
+# View dynamic dependencies
+ldd program
+
+# Trace dynamic linking
+LD_DEBUG=libs ./program
+LD_DEBUG=symbols ./program
+\end{lstlisting}
+
+\subsection{Lazy vs. Eager Binding}
+
+\textbf{Lazy Binding} (default): Resolve symbols on first use
+\begin{itemize}
+    \item Faster startup
+    \item Unused symbols never resolved
+    \item Implemented via PLT
+\end{itemize}
+
+\textbf{Eager Binding}: Resolve all symbols at startup
+\begin{lstlisting}[language=bash]
+LD_BIND_NOW=1 ./program
+\end{lstlisting}
+\begin{itemize}
+    \item Slower startup
+    \item All symbols guaranteed to exist
+    \item More predictable behavior
+\end{itemize}
+
+\subsection{Pros and Cons of Dynamic Linking}
+
+\textbf{Advantages}:
+\begin{itemize}
+    \item Smaller executables
+    \item Memory efficiency (shared code pages)
+    \item Easy updates (replace library file)
+    \item Runtime plugin support
+\end{itemize}
+
+\textbf{Disadvantages}:
+\begin{itemize}
+    \item Runtime overhead
+    \item Dependency management ("DLL hell")
+    \item Security concerns (LD\_PRELOAD attacks)
+    \item Version compatibility issues
+\end{itemize}
+
+\section{Linker Scripts}
+
+\subsection{What is a Linker Script?}
+
+Linker scripts control exactly how sections are laid out:
+
+\begin{lstlisting}[language=ld]
+/* Simple linker script */
+ENTRY(main)
+
+SECTIONS
+{
+    . = 0x400000;          /* Start address */
+
+    .text : {
+        *(.text)           /* All .text sections */
+    }
+
+    . = 0x600000;
+
+    .rodata : {
+        *(.rodata)
+    }
+
+    . = 0x800000;
+
+    .data : {
+        *(.data)
+    }
+
+    .bss : {
+        *(.bss)
+    }
+}
+\end{lstlisting}
+
+\subsection{Using Linker Scripts}
+
+\begin{lstlisting}[language=bash]
+# Use custom linker script
+ld -T custom.ld object.o -o program
+
+# Or with gcc
+gcc -T custom.ld object.o -o program
+\end{lstlisting}
+
+\subsection{View Default Linker Script}
+
+\begin{lstlisting}[language=bash]
+# See the default script
+ld --verbose
+
+# For gcc's default
+gcc -Wl,--verbose 2>&1 | grep -A1000 "^======="
+\end{lstlisting}
+
+\section{Common Linker Flags}
+
+\subsection{Library Search Paths}
+
+\begin{lstlisting}[language=bash]
+# Add library search path
+gcc -L/path/to/libs program.c -lmylib
+
+# Add runtime library path
+gcc -Wl,-rpath,/path/to/libs program.c -lmylib
+
+# Add both compile-time and runtime paths
+gcc -L/path/to/libs -Wl,-rpath,/path/to/libs program.c -lmylib
+\end{lstlisting}
+
+\subsection{Optimization Flags}
+
+\begin{lstlisting}[language=bash]
+# Remove unused sections
+gcc -ffunction-sections -fdata-sections -Wl,--gc-sections
+
+# Link-time optimization (LTO)
+gcc -flto program.c
+
+# Dead code elimination
+gcc -Wl,--as-needed  # Only link needed libraries
+\end{lstlisting}
+
+\subsection{Security Flags}
+
+\begin{lstlisting}[language=bash]
+# Enable RELRO (read-only relocations)
+gcc -Wl,-z,relro program.c
+
+# Full RELRO (eager binding + read-only GOT)
+gcc -Wl,-z,relro,-z,now program.c
+
+# Non-executable stack
+gcc -Wl,-z,noexecstack program.c
+\end{lstlisting}
+
+\section{Linker Errors and Solutions}
+
+\subsection{Undefined Reference}
+
+\begin{verbatim}
+undefined reference to `symbol_name'
+\end{verbatim}
+
+\textbf{Causes}:
+\begin{itemize}
+    \item Forgot to link a library
+    \item Misspelled symbol name
+    \item Symbol is static in another file
+    \item C++ name mangling mismatch
+\end{itemize}
+
+\textbf{Solutions}:
+\begin{lstlisting}[language=bash]
+# Add missing library
+gcc program.c -lmissinglib
+
+# For C++ code, use extern "C"
+extern "C" void c_function();
+
+# Check if symbol exists
+nm library.a | grep symbol_name
+\end{lstlisting}
+
+\subsection{Multiple Definition}
+
+\begin{verbatim}
+multiple definition of `symbol_name'
+\end{verbatim}
+
+\textbf{Causes}:
+\begin{itemize}
+    \item Symbol defined in multiple files
+    \item Header defines variable (not just declares)
+\end{itemize}
+
+\textbf{Solutions}:
+\begin{lstlisting}[language=C]
+// In header: declare only
+extern int global_var;
+
+// In one source file: define
+int global_var = 10;
+
+// Or use static for file-local
+static int file_local_var = 10;
+\end{lstlisting}
+
+\subsection{Cannot Find Library}
+
+\begin{verbatim}
+cannot find -lmylib
+\end{verbatim}
+
+\textbf{Solutions}:
+\begin{lstlisting}[language=bash]
+# Add library path
+gcc -L/path/to/lib program.c -lmylib
+
+# Check library exists
+find /usr -name "libmylib*"
+
+# Check ldconfig cache
+ldconfig -p | grep mylib
+\end{lstlisting}
+
+\section{Key Takeaways}
+
+\begin{enumerate}
+    \item \textbf{Linkers combine object files}: They resolve symbols and apply relocations.
+    \item \textbf{Symbol resolution matches references to definitions}: Strong symbols override weak ones; duplicates cause errors.
+    \item \textbf{Relocation adjusts addresses}: Object files start at 0; linker computes final addresses.
+    \item \textbf{Static linking embeds libraries}: Self-contained but larger; updates require recompilation.
+    \item \textbf{Dynamic linking defers to runtime}: Smaller, updatable, but with runtime overhead.
+    \item \textbf{Order matters for static libraries}: Libraries should come after files that use them.
+    \item \textbf{Linker scripts control layout}: They specify section addresses and ordering.
+    \item \textbf{Many linker flags optimize and secure}: LTO, garbage collection, RELRO, etc.
+\end{enumerate}
+
+\section{Looking Ahead}
+
+With linking complete, we have an executable ready to run. But where do the standard library functions come from? In Chapter 7, we'll explore static and dynamic libraries in depth, learning how to create, use, and manage them.

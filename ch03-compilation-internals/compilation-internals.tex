@@ -1,37 +1,502 @@
 \chapter{Compilation Internals}
 
-\section{Purpose}
-Detail how source code becomes optimized machine-oriented assembly.
+\section{Introduction}
 
-\section{Outline}
+After preprocessing, the compiler's real work begins. The compilation phase transforms your C source code—a human-readable text format—into assembly language that the machine can understand. This is the most complex stage of the build pipeline, involving lexical analysis, parsing, semantic analysis, optimization, and code generation.
+
+Understanding compilation internals helps you:
+\begin{itemize}
+    \item Write code that compilers can optimize effectively
+    \item Debug compiler errors more efficiently
+    \item Understand why seemingly equivalent code performs differently
+    \item Appreciate the sophisticated machinery behind modern compilers
+\end{itemize}
+
+In this chapter, we'll trace the complete journey from preprocessed source to assembly output.
+
+\section{The Compilation Pipeline Overview}
+
+The compiler processes code through several distinct phases:
+
+\begin{verbatim}
+┌─────────────────────────────────────────────────────────────────────┐
+│                     Compilation Pipeline                            │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐              │
+│  │  Lexical    │    │   Parsing   │    │  Semantic   │              │
+│  │  Analysis   │───▶│             │───▶│  Analysis   │              │
+│  │ (tokenize)  │    │ (AST build) │    │(type check) │              │
+│  └─────────────┘    └─────────────┘    └─────────────┘              │
+│                                                │                    │
+│                                                ▼                    │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐              │
+│  │    Code     │    │ Optimization│    │     IR      │              │
+│  │ Generation  │◀───│   Passes    │◀───│  Generation │              │
+│  │  (assembly) │    │             │    │             │              │
+│  └─────────────┘    └─────────────┘    └─────────────┘              │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+\end{verbatim}
+
+Each phase builds on the previous one, creating increasingly refined representations of your code.
+
+\section{Lexical Analysis (Tokenization)}
+
+\subsection{What is Lexical Analysis?}
+
+Lexical analysis (or scanning) converts the raw character stream of your source code into a sequence of \textbf{tokens}—the smallest meaningful units in the language. The lexer doesn't understand syntax; it just recognizes patterns.
+
+Example input:
+\begin{lstlisting}[language=C]
+int x = 42 + y;
+\end{lstlisting}
+
+Becomes tokens:
+\begin{verbatim}
+[KEYWORD: int] [IDENTIFIER: x] [OPERATOR: =] [INTEGER: 42] [OPERATOR: +] [IDENTIFIER: y] [SEMICOLON]
+\end{verbatim}
+
+\subsection{Token Categories}
+
+C tokens fall into several categories:
+
+\begin{tabular}{|l|l|}
+\hline
+\textbf{Category} & \textbf{Examples} \\
+\hline
+Keywords & \texttt{int}, \texttt{if}, \texttt{else}, \texttt{while}, \texttt{return} \\
+\hline
+Identifiers & \texttt{main}, \texttt{printf}, \texttt{count}, \texttt{x} \\
+\hline
+Constants & \texttt{42}, \texttt{3.14}, \texttt{'a'}, \texttt{"hello"} \\
+\hline
+Operators & \texttt{+}, \texttt{-}, \texttt{*}, \texttt{/}, \texttt{=}, \texttt{==}, \texttt{\&\&} \\
+\hline
+Punctuation & \texttt{;}, \texttt{,}, \texttt{(}, \texttt{)}, \texttt{\{}, \texttt{\}} \\
+\hline
+Preprocessor & \texttt{\#include}, \texttt{\#define} (handled earlier) \\
+\hline
+\end{tabular}
+
+\subsection{How Lexers Work}
+
+Lexers use \textbf{regular expressions} and \textbf{finite automata} to recognize tokens:
+
+\begin{verbatim}
+Pattern for integer literal: [0-9]+
+Pattern for identifier:      [a-zA-Z_][a-zA-Z0-9_]*
+Pattern for keyword 'int':   int (but not followed by identifier chars)
+\end{verbatim}
+
+\textbf{The Longest Match Rule}: When multiple patterns match, the lexer chooses the longest match:
+\begin{itemize}
+    \item \texttt{integer} → IDENTIFIER (not \texttt{int} + \texttt{eger})
+    \item \texttt{while1} → IDENTIFIER (not \texttt{while} + \texttt{1})
+\end{itemize}
+
+\textbf{The Priority Rule}: When patterns have the same length, keywords take priority over identifiers:
+\begin{itemize}
+    \item \texttt{while} → KEYWORD (not IDENTIFIER)
+\end{itemize}
+
+\section{Parsing and Syntax Analysis}
+
+\subsection{What is Parsing?}
+
+Parsing (syntax analysis) takes the token stream and builds a \textbf{parse tree} or \textbf{Abstract Syntax Tree (AST)} according to the grammar rules of C. The parser checks whether the token sequence forms valid C syntax.
+
+\subsection{Context-Free Grammars}
+
+C's syntax is defined by a \textbf{context-free grammar (CFG)}. A grammar has:
+\begin{itemize}
+    \item \textbf{Terminals}: Tokens from the lexer
+    \item \textbf{Non-terminals}: Syntactic categories (expression, statement, declaration)
+    \item \textbf{Production rules}: How non-terminals expand
+\end{itemize}
+
+Simplified grammar for expressions:
+\begin{verbatim}
+expr        → expr '+' term | expr '-' term | term
+term        → term '*' factor | term '/' factor | factor
+factor      → NUMBER | IDENT | '(' expr ')'
+\end{verbatim}
+
+This grammar correctly handles operator precedence:
+\begin{itemize}
+    \item \texttt{1 + 2 * 3} parses as \texttt{1 + (2 * 3)}, not \texttt{(1 + 2) * 3}
+\end{itemize}
+
+\subsection{Parse Trees vs. Abstract Syntax Trees}
+
+\textbf{Parse Tree (Concrete Syntax Tree)}: Contains every grammatical element, including punctuation.
+
+\textbf{Abstract Syntax Tree (AST)}: Eliminates syntactic sugar, focuses on structure.
+
+For expression \texttt{x = 2 + 3 * y}:
+
+\textbf{AST (cleaner):}
+\begin{verbatim}
+        =
+       / \
+      x   +
+         / \
+        2   *
+           / \
+          3   y
+\end{verbatim}
+
+The AST is what the compiler uses for further processing.
+
+\subsection{AST Node Types}
+
+Different constructs produce different AST node types. For example, a function definition:
+\begin{lstlisting}[language=C]
+int add(int a, int b) {
+    return a + b;
+}
+\end{lstlisting}
+
+Produces an AST node:
+\begin{verbatim}
+// FunctionDecl {
+//   return_type: int,
+//   name: "add",
+//   params: [Param{name:"a", type:int}, Param{name:"b", type:int}],
+//   body: CompoundStmt {
+//     body: [ ReturnStmt { expr: BinaryOp{op:'+', left:'a', right:'b'} } ]
+//   }
+// }
+\end{verbatim}
+
+\section{Semantic Analysis}
+
+\subsection{What is Semantic Analysis?}
+
+Syntax analysis ensures the code is \textit{syntactically} valid. Semantic analysis checks whether the code is \textit{meaningfully} valid:
+\begin{itemize}
+    \item \textbf{Type checking}: Are operations applied to compatible types?
+    \item \textbf{Symbol resolution}: Do referenced variables/functions exist?
+    \item \textbf{Scope management}: Are variables used in the correct scope?
+    \item \textbf{Const correctness}: Are const variables being modified?
+\end{itemize}
+
+\subsection{The Symbol Table}
+
+The compiler maintains a \textbf{symbol table} mapping names to their declarations. For example:
+
+\begin{lstlisting}[language=C]
+int global_var = 10;
+
+int add(int a, int b) {
+    int result = a + b;
+    return result;
+}
+\end{lstlisting}
+
+Symbol table (simplified):
+\begin{verbatim}
+Global Scope:
+  global_var → { type: int, storage: extern, location: .data }
+  add        → { type: int(int,int), storage: extern, params: [a, b] }
+
+add function scope:
+  a         → { type: int, storage: param, location: rdi }
+  b         → { type: int, storage: param, location: rsi }
+  result    → { type: int, storage: auto, location: stack:-4 }
+\end{verbatim}
+
+\section{Intermediate Representation (IR)}
+
+\subsection{Why IR?}
+
+Directly translating AST to assembly is impractical because:
+\begin{itemize}
+    \item The AST is too high-level for optimization
+    \item Different target architectures have different instruction sets
+    \item Optimization is easier on a simpler, more regular form
+\end{itemize}
+
+The solution is an \textbf{Intermediate Representation (IR)} that:
+\begin{itemize}
+    \item Is architecture-independent (mostly)
+    \item Is simpler than the AST
+    \item Supports various optimizations
+    \item Can be easily translated to assembly
+\end{itemize}
+
+\subsection{Three-Address Code (TAC)}
+
+A simple IR form is \textbf{three-address code}, where each instruction has at most three operands:
+
+\begin{lstlisting}[language=C]
+// Source
+int result = (a + b) * (c - d);
+
+// Three-address code
+t1 = a + b
+t2 = c - d
+t3 = t1 * t2
+result = t3
+\end{lstlisting}
+
+Each instruction is simple: \texttt{dest = op1 operator op2} or \texttt{dest = operator op1}.
+
+\subsection{SSA Form (Static Single Assignment)}
+
+\textbf{Static Single Assignment (SSA)} is a modern IR form where each variable is assigned exactly once:
+
+\begin{lstlisting}[language=C]
+// Original code
+int x = 1;
+x = x + 2;
+x = x * 3;
+
+// SSA form
+x1 = 1
+x2 = x1 + 2
+x3 = x2 * 3
+\end{lstlisting}
+
+SSA makes many optimizations simpler because:
+\begin{itemize}
+    \item Each use refers to exactly one definition
+    \item Def-use chains are explicit
+    \item Data flow analysis is easier
+\end{itemize}
+
+\subsection{LLVM IR Example}
+
+LLVM is a popular compiler infrastructure with its own well-defined IR:
+
+\begin{lstlisting}[language=C]
+// Source
+int add(int a, int b) {
+    return a + b;
+}
+
+// LLVM IR
+define i32 @add(i32 %a, i32 %b) {
+entry:
+    %result = add i32 %a, %b
+    ret i32 %result
+}
+\end{lstlisting}
+
+\section{Optimization Passes}
+
+\subsection{Why Optimize?}
+
+C compilers perform optimizations to:
+\begin{itemize}
+    \item Generate faster code
+    \item Reduce code size
+    \item Use registers efficiently
+    \item Eliminate redundant computations
+\end{itemize}
+
+Modern compilers have hundreds of optimization passes.
+
+\subsection{Optimization Levels}
+
+\begin{tabular}{|l|p{8cm}|l|}
+\hline
+\textbf{Level} & \textbf{Description} & \textbf{Key Optimizations} \\
+\hline
+-O0 & No optimization (default) & None \\
+\hline
+-O1 & Basic optimizations & Dead code elimination, basic block reordering \\
+\hline
+-O2 & Standard optimizations & Inlining, loop optimizations, common subexpression elimination \\
+\hline
+-O3 & Aggressive optimizations & Vectorization, function inlining (aggressive), loop unrolling \\
+\hline
+-Os & Optimize for size & Disables size-increasing optimizations \\
+\hline
+-Ofast & Maximum performance (non-standard) & -O3 + fast math + non-IEEE compliance \\
+\hline
+\end{tabular}
+
+\subsection{Common Optimizations}
+
+\textbf{Constant Folding}: Evaluate constant expressions at compile time:
+\begin{lstlisting}[language=C]
+// Source
+int x = 2 + 3 * 4;
+
+// Optimized (evaluated at compile time)
+int x = 14;
+\end{lstlisting}
+
+\textbf{Dead Code Elimination}: Remove code that has no effect:
+\begin{lstlisting}[language=C]
+// Source
+int x = 10;
+x = 20;  // First assignment is dead
+return x;
+
+// Optimized
+int x = 20;
+return x;
+\end{lstlisting}
+
+\textbf{Loop Invariant Code Motion}: Move computations out of loops:
+\begin{lstlisting}[language=C]
+// Source
+for (int i = 0; i < n; i++) {
+    x = a * b + i;  // a * b is invariant
+}
+
+// Optimized
+int temp = a * b;
+for (int i = 0; i < n; i++) {
+    x = temp + i;
+}
+\end{lstlisting}
+
+\textbf{Function Inlining}: Replace function call with the function body:
+\begin{lstlisting}[language=C]
+// Source
+static int square(int x) { return x * x; }
+int result = square(5);
+
+// Optimized
+int result = 5 * 5;
+\end{lstlisting}
+
+\section{Code Generation}
+
+\subsection{Instruction Selection}
+
+The code generator selects machine instructions to implement each IR operation:
+
+\begin{verbatim}
+IR: t3 = t1 + t2
+
+x86-64:  add eax, ecx      ; Add ecx to eax
+ARM:     add r0, r1, r2    ; r0 = r1 + r2
+RISC-V:  add a0, a1, a2    ; a0 = a1 + a2
+\end{verbatim}
+
+\subsection{Register Allocation}
+
+The \textbf{register allocator} maps IR temporaries to physical registers. Since registers are limited, values may need to be \textbf{spilled} to memory.
+
+\begin{verbatim}
+IR temporaries: t1, t2, t3, t4, t5, t6
+Available registers: eax, ecx, edx (3 registers)
+
+Allocation:
+  t1 → eax
+  t2 → ecx
+  t3 → edx
+  t4 → [stack - 4]   (spilled)
+  t5 → eax (t1 dead, can reuse)
+  t6 → ecx (t2 dead, can reuse)
+\end{verbatim}
+
+\subsection{Complete Code Generation Example}
+
+Source:
+\begin{lstlisting}[language=C]
+int square(int x) {
+    return x * x;
+}
+\end{lstlisting}
+
+IR:
+\begin{verbatim}
+define i32 @square(i32 %x) {
+  %result = mul i32 %x, %x
+  ret i32 %result
+}
+\end{verbatim}
+
+x86-64 Assembly:
+\begin{lstlisting}[language=nasm]
+square:
+    mov eax, edi        ; Move argument to eax (result register)
+    imul eax, eax       ; eax = eax * eax
+    ret                 ; Return (eax contains result)
+\end{lstlisting}
+
+\section{Compiler Flags for Optimization}
+
+\subsection{-O0 (No Optimization)}
+
+\begin{itemize}
+    \item Fastest compilation
+    \item Best debugging experience
+    \item Variables stay in memory as declared
+    \item No optimization surprises
+\end{itemize}
+
+Use for: Development, debugging
+
+\subsection{-O2 (Standard Optimization)}
+
+\begin{itemize}
+    \item Slower compilation
+    \item Most beneficial optimizations
+    \item Generally safe
+    \item Industry standard for release builds
+\end{itemize}
+
+Optimizations enabled: all from -O1, plus inlining, loop optimizations, common subexpression elimination, instruction scheduling
+
+\subsection{-O3 (Aggressive Optimization)}
+
+\begin{itemize}
+    \item Slowest compilation
+    \item May increase code size
+    \item May not be faster than -O2
+    \item Some risky optimizations
+\end{itemize}
+
+\section{Viewing Compiler Output}
+
+\subsection{View Intermediate Representations}
+
+\begin{lstlisting}[language=bash]
+# GCC: View GIMPLE
+gcc -fdump-tree-gimple source.c
+
+# GCC: View all passes
+gcc -fdump-tree-all source.c
+
+# Clang/LLVM: View LLVM IR
+clang -S -emit-llvm source.c -o source.ll
+
+# Clang/LLVM: View IR with optimization
+clang -S -emit-llvm -O2 source.c -o source.ll
+\end{lstlisting}
+
+\subsection{View Assembly Output}
+
+\begin{lstlisting}[language=bash]
+# Generate assembly file
+gcc -S source.c -o source.s
+
+# With comments and C source intermixed
+gcc -S -fverbose-asm source.c -o source.s
+
+# With source line annotations
+gcc -g -S source.c -o source.s
+\end{lstlisting}
+
+\section{Key Takeaways}
+
 \begin{enumerate}
-  \item Lexical analysis
-  \item Parsing and grammar
-  \item AST construction
-  \item Intermediate representation (IR)
-  \item Optimization passes
-  \item Code generation
-  \item Optimization flags (-O0, -O1, -O2, -O3)
+    \item \textbf{Compilation is multi-stage}: Lexical analysis → parsing → semantic analysis → IR generation → optimization → code generation.
+    \item \textbf{AST captures structure}: The Abstract Syntax Tree represents your code's syntactic structure without syntactic sugar.
+    \item \textbf{IR enables optimization}: Intermediate representations like SSA make optimizations easier and architecture-independent.
+    \item \textbf{SSA is crucial}: Static Single Assignment form, where each variable is assigned once, simplifies many analyses.
+    \item \textbf{Optimization levels trade off compile time vs. performance}: -O0 for debugging, -O2 for production, -O3 for maximum performance.
+    \item \textbf{Register allocation is critical}: Limited registers must be carefully allocated; spilling to memory hurts performance.
+    \item \textbf{Modern compilers are sophisticated}: Hundreds of optimization passes work together to generate efficient code.
+    \item \textbf{Understanding compilation helps write better code}: Knowing how compilers think helps you write code they can optimize effectively.
 \end{enumerate}
 
-\section{Content Plan}
-\begin{itemize}
-  \item Tokenization and error reporting.
-  \item Parser output and syntax trees.
-  \item AST vs IR roles and transformations.
-  \item Optimization pipeline: local, global, SSA-based.
-  \item Code generation: instruction selection, register allocation.
-  \item Mapping high-level constructs to assembly idioms.
-  \item Flag effects on debugability and performance.
-\end{itemize}
+\section{Looking Ahead}
 
-\section{Key Terms}
-\begin{itemize}
-  \item AST
-  \item IR
-  \item SSA
-  \item register allocation
-\end{itemize}
-
-\section{Experiment}
-See compilation-internals-exp/compilation-internals-exp.tex in this chapter.
+Now that we've seen how the compiler generates assembly code, we'll examine that assembly output in detail. In Chapter 4, we'll explore assembly language, object file structure, and how assembly is translated into machine code.

@@ -1,48 +1,98 @@
-\begin{experiment}
-\textbf{Objective}
+\section{Experiment: Linking and Relocation}
+
+\subsection{Objective}
+Explore the linking process by creating object files, libraries, and observing how symbols are resolved and relocations applied.
+
+\subsection{Setup Requirements}
 \begin{itemize}
-  \item Observe how strong and weak symbols are resolved at link time.
+\item GCC compiler
+\item binutils (ar, nm, objdump, readelf)
+\item Linux environment
 \end{itemize}
 
-\textbf{Setup requirements}
-\begin{itemize}
-  \item gcc or clang installed.
-  \item nm for symbol inspection.
-\end{itemize}
+\subsection{Part 1: Basic Linking}
 
-\textbf{Step-by-step commands}
-\begin{enumerate}
-  \item Create two translation units:
+Create multiple source files and link:
+
 \begin{lstlisting}[language=C]
-// a.c
-__attribute__((weak)) int value(void) { return 1; }
+// main.c
+extern int add(int a, int b);
+extern int global_value;
+
+int main(void) {
+    printf("Result: %d\n", add(global_value, 10));
+    return 0;
+}
 \end{lstlisting}
+
+\begin{lstlisting}[language=bash]
+gcc -c main.c -o main.o
+gcc -c math_ops.c -o math_ops.o
+gcc -c data.c -o data.o
+gcc main.o math_ops.o data.o -o program
+./program
+\end{lstlisting}
+
+\subsection{Part 2: Understanding Relocations}
+
+Examine relocations in object files:
+
+\begin{lstlisting}[language=bash]
+readelf -r main.o
+objdump -r main.o
+objdump -d main.o
+\end{lstlisting}
+
+\subsection{Part 3: Static Library Creation}
+
+Create and use a static library:
+
+\begin{lstlisting}[language=bash]
+ar rcs libmath.a math_ops.o
+ar -t libmath.a
+gcc main.c -L. -lmath data.o -o program_static
+\end{lstlisting}
+
+\subsection{Part 4: Library Linking Order}
+
+Demonstrate ordering issues:
+
+\begin{lstlisting}[language=bash]
+# May fail with static libraries
+gcc -L. -lmath main.c data.o -o program_order 2>&1
+
+# Correct ordering
+gcc main.c data.o -L. -lmath -o program_correct
+\end{lstlisting}
+
+\subsection{Part 5: Shared Library Creation}
+
+Create a shared library:
+
+\begin{lstlisting}[language=bash]
+gcc -fPIC -c shared_math.c -o shared_math.o
+gcc -shared shared_math.o -o libsharedmath.so
+gcc use_shared.c -L. -lsharedmath -o use_shared
+LD_LIBRARY_PATH=. ./use_shared
+\end{lstlisting}
+
+\subsection{Part 6: Dynamic Loading at Runtime}
+
+Use dlopen for runtime loading:
+
 \begin{lstlisting}[language=C]
-// b.c
-int value(void) { return 2; }
-int main(void) { return value(); }
+void* handle = dlopen("./libsharedmath.so", RTLD_NOW);
+int (*add_func)(int, int) = dlsym(handle, "shared_add");
+printf("Result: %d\n", add_func(10, 20));
+dlclose(handle);
 \end{lstlisting}
-  \item Compile and link:
-\begin{lstlisting}[language=bash]
-gcc -c a.c b.c
-gcc -o demo a.o b.o
-\end{lstlisting}
-  \item Inspect symbols:
-\begin{lstlisting}[language=bash]
-nm -C demo | grep value
-\end{lstlisting}
-\end{enumerate}
 
-\textbf{Expected output explanation}
-\begin{itemize}
-  \item The strong definition in b.c overrides the weak definition in a.c.
-  \item The resulting executable contains a single value symbol.
-\end{itemize}
+\subsection{Questions for Reader}
 
-\textbf{Questions for reader}
 \begin{enumerate}
-  \item What happens if the strong definition is removed?
-  \item How does the linker report multiple strong definitions?
-  \item How do weak symbols affect library design?
+\item How did the linker find the \texttt{add} function and \texttt{global\_value} variable?
+\item Look at the relocation entries for main.o. What types of relocations are used?
+\item Why does the order of static libraries on the command line matter?
+\item When both weak and strong definitions exist, which one is used?
+\item What does position-independent code mean?
 \end{enumerate}
-\end{experiment}

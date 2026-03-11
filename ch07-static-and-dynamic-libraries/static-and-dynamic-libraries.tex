@@ -1,34 +1,464 @@
 \chapter{Static and Dynamic Libraries}
 
-\section{Purpose}
-Compare static and dynamic libraries and explain runtime resolution mechanisms.
+\section{Introduction}
 
-\section{Outline}
+In Chapter 6, we learned how the linker combines object files into a single executable by resolving symbols and applying relocations. But what happens when you want to reuse code across multiple programs? Must every program contain a complete copy of all the code it uses?
+
+This chapter explores \textbf{libraries}—collections of compiled object files that can be linked into multiple programs. We'll examine two fundamentally different approaches: \textbf{static libraries} (\texttt{.a} files) that are copied into the executable at link time, and \textbf{dynamic libraries} (\texttt{.so} files) that are loaded at runtime.
+
+Understanding the difference between static and dynamic linking is crucial for:
+\begin{itemize}
+    \item \textbf{Binary distribution}: Deciding whether to ship dependencies with your application
+    \item \textbf{Security updates}: Understanding how library updates (or lack thereof) affect your programs
+    \item \textbf{Performance}: Balancing startup time, memory usage, and execution speed
+    \item \textbf{Cross-platform compatibility}: Ensuring your code runs across different systems
+\end{itemize}
+
+\section{The Problem Libraries Solve}
+
+Imagine you're developing multiple applications that all need common functionality—say, mathematical operations, string handling, or file I/O. Without libraries, you'd have three bad options:
+
 \begin{enumerate}
-  \item Structure of .a archives
-  \item Structure of .so shared objects
-  \item Dynamic loader role
-  \item PLT and GOT
-  \item Lazy binding
-  \item Runtime symbol resolution
+    \item \textbf{Copy source code} into each project (maintenance nightmare)
+    \item \textbf{Copy object files} into each project (wastes disk space)
+    \item \textbf{Manually link the right object files} each time (error-prone)
 \end{enumerate}
 
-\section{Content Plan}
+Libraries solve all these problems by providing a packaged collection of object files that can be easily linked into any program.
+
+\textbf{Example scenario}: You've written useful math functions:
+
+\begin{lstlisting}[language=C]
+// math_utils.c
+int add(int a, int b) { return a + b; }
+int multiply(int a, int b) { return a * b; }
+int factorial(int n) {
+    if (n <= 1) return 1;
+    return n * factorial(n - 1);
+}
+\end{lstlisting}
+
+You want to use these functions in multiple programs. Let's see how both static and dynamic libraries make this possible.
+
+\section{Static Libraries (.a files)}
+
+\subsection{What is a Static Library?}
+
+A \textbf{static library} is simply an archive (collection) of object files, typically with the \texttt{.a} extension. When you link against a static library, the linker \textbf{extracts} the object files containing the symbols you reference and \textbf{copies} them into your executable.
+
+Think of a static library like a ZIP file of object files—the linker can open it, pull out what it needs, and ignore the rest.
+
+\textbf{Key characteristics}:
 \begin{itemize}
-  \item Archive indexing and object extraction.
-  \item PIC and shared object metadata.
-  \item Loader responsibilities and search paths.
-  \item PLT/GOT indirection and lazy binding.
-  \item Symbol interposition and versioning considerations.
+    \item \textbf{File extension}: \texttt{.a} (archive) on Unix-like systems, \texttt{.lib} on Windows
+    \item \textbf{Link time}: Symbols are resolved at link time (during compilation)
+    \item \textbf{Runtime}: No external dependencies; the executable is self-contained
+    \item \textbf{Size}: Larger binaries because all needed code is included
 \end{itemize}
 
-\section{Key Terms}
+\subsection{Creating a Static Library}
+
+Let's create a static library from our math utilities:
+
+\begin{lstlisting}[language=bash]
+# Step 1: Compile source files to object files
+gcc -c math_utils.c -o math_utils.o
+
+# Step 2: Create a static library using ar (archiver)
+ar rcs libmathutils.a math_utils.o
+\end{lstlisting}
+
+The \texttt{ar} command options:
 \begin{itemize}
-  \item archive
-  \item shared object
-  \item PLT
-  \item GOT
+    \item \texttt{r}: Insert (replace) files into the archive
+    \item \texttt{c}: Create the archive if it doesn't exist
+    \item \texttt{s}: Write an object file index into the archive
 \end{itemize}
 
-\section{Experiment}
-See static-and-dynamic-libraries-exp/static-and-dynamic-libraries-exp.tex in this chapter.
+The resulting \texttt{libmathutils.a} contains the compiled code from \texttt{math\_utils.o}. The \texttt{lib} prefix and \texttt{.a} extension are conventions—the linker expects libraries to follow this naming pattern.
+
+\textbf{Multiple object files in one library}:
+
+\begin{lstlisting}[language=bash]
+# Compile multiple source files
+gcc -c math_utils.c -o math_utils.o
+gcc -c string_utils.c -o string_utils.o
+gcc -c file_utils.c -o file_utils.o
+
+# Create a library with all of them
+ar rcs libutils.a math_utils.o string_utils.o file_utils.o
+\end{lstlisting}
+
+Now \texttt{libutils.a} contains three object files that can be selectively linked.
+
+\subsection{Using a Static Library}
+
+To use a static library in your program:
+
+\begin{lstlisting}[language=C]
+// main.c
+#include <stdio.h>
+
+// Forward declarations (typically in a header file)
+int add(int a, int b);
+int multiply(int a, int b);
+int factorial(int n);
+
+int main(void) {
+    printf("5 + 3 = %d\n", add(5, 3));
+    printf("5 * 3 = %d\n", multiply(5, 3));
+    printf("5! = %d\n", factorial(5));
+    return 0;
+}
+\end{lstlisting}
+
+Compile and link with the static library:
+
+\begin{lstlisting}[language=bash]
+gcc main.c -o main -L. -lmathutils
+\end{lstlisting}
+
+The linker flags:
+\begin{itemize}
+    \item \texttt{-L.}: Add the current directory (\texttt{.}) to the library search path
+    \item \texttt{-lmathutils}: Link against \texttt{libmathutils.a} (the \texttt{lib} prefix and \texttt{.a} extension are implied)
+\end{itemize}
+
+\textbf{What the linker does}:
+\begin{enumerate}
+    \item Reads \texttt{main.o} and finds undefined symbols: \texttt{add}, \texttt{multiply}, \texttt{factorial}
+    \item Searches libraries in order for these symbols
+    \item Finds them in \texttt{libmathutils.a}
+    \item Extracts the necessary object files from the archive
+    \item Copies the code into the final executable
+    \item Resolves all relocations
+\end{enumerate}
+
+The resulting \texttt{main} executable is completely self-contained—it needs no external files to run.
+
+\subsection{Static Library Internals: The Symbol Index}
+
+When we created the archive with \texttt{ar rcs}, the \texttt{s} option created a \textbf{symbol index} that makes linking much faster. Without this index, the linker would have to scan every object file in the archive to find symbols. With the index, the linker can quickly look up which object file contains each needed symbol.
+
+Let's examine the archive structure:
+
+\begin{lstlisting}[language=bash]
+# List the contents of the archive
+ar t libmathutils.a
+
+# Display the symbol table (index)
+nm -s libmathutils.a
+
+# Or use objdump to see detailed information
+objdump -a libmathutils.a
+\end{lstlisting}
+
+Typical output:
+\begin{verbatim}
+Archive index:
+
+add in math_utils.o
+multiply in math_utils.o
+factorial in math_utils.o
+\end{verbatim}
+
+This index tells the linker exactly which object file contains each symbol.
+
+\subsection{The "Extract Only What's Needed" Rule}
+
+A crucial property of static linking: \textbf{the linker only extracts object files that contain referenced symbols}.
+
+Example: If \texttt{libutils.a} contains \texttt{math\_utils.o}, \texttt{string\_utils.o}, and \texttt{file\_utils.o}, and your program only calls functions from \texttt{math\_utils.o}, then only that object file is included in your executable.
+
+\begin{lstlisting}[language=C]
+// main2.c - only uses math functions
+int main(void) {
+    return add(1, 2);  // Only references 'add'
+}
+\end{lstlisting}
+
+Linking this program:
+\begin{lstlisting}[language=bash]
+gcc main2.c -o main2 -L. -lutils
+\end{lstlisting}
+
+The linker:
+\begin{enumerate}
+    \item Sees reference to \texttt{add}
+    \item Looks up \texttt{add} in the library index
+    \item Finds \texttt{add} in \texttt{math\_utils.o}
+    \item Extracts only \texttt{math\_utils.o} from \texttt{libutils.a}
+    \item Ignores \texttt{string\_utils.o} and \texttt{file\_utils.o}
+\end{enumerate}
+
+This selective linking keeps binary size manageable.
+
+\begin{warning}
+If an object file in a static library references symbols from another object file in the same library, the linker will include both. This is why careful library organization matters—group related functions together in the same source file.
+\end{warning}
+
+\subsection{Advantages and Disadvantages of Static Libraries}
+
+\textbf{Advantages}:
+\begin{enumerate}
+    \item \textbf{Self-contained executables}: No runtime dependencies; easier to distribute
+    \item \textbf{Predictable behavior}: You know exactly which version of library code you're using
+    \item \textbf{Simpler deployment}: Just copy one file
+    \item \textbf{Faster startup}: No dynamic linking overhead at program start
+    \item \textbf{Better performance}: No position-independent code overhead; more optimization opportunities
+\end{enumerate}
+
+\textbf{Disadvantages}:
+\begin{enumerate}
+    \item \textbf{Larger binaries}: Every program contains its own copy of library code
+    \item \textbf{Disk space waste}: If 10 programs use the same library, that code exists 10 times on disk
+    \item \textbf{Memory inefficiency}: If 10 programs using the same library run simultaneously, the library code occupies memory 10 times
+    \item \textbf{Security updates difficult}: To fix a bug in library code, you must recompile all programs using that library
+    \item \textbf{No sharing}: No way for multiple programs to share library code in memory
+\end{enumerate}
+
+\section{Dynamic Libraries (.so files)}
+
+\subsection{What is a Dynamic Library?}
+
+A \textbf{dynamic library} (also called a \textbf{shared library} or \textbf{shared object}) is compiled code that can be loaded by multiple programs at runtime. Instead of copying library code into each executable, the operating system loads the dynamic library once and shares it among all running programs that need it.
+
+\textbf{Key characteristics}:
+\begin{itemize}
+    \item \textbf{File extension}: \texttt{.so} (shared object) on Unix-like systems, \texttt{.dll} (dynamic-link library) on Windows, \texttt{.dylib} on macOS
+    \item \textbf{Link time}: Symbols are resolved at link time, but the library isn't included in the executable
+    \item \textbf{Runtime}: The dynamic linker loads the library when the program starts (or on first use)
+    \item \textbf{Size}: Smaller binaries because library code is not included
+\end{itemize}
+
+\subsection{Creating a Dynamic Library}
+
+Creating a dynamic library requires special compilation options to ensure the code can be loaded at any memory address:
+
+\begin{lstlisting}[language=bash]
+# Compile with Position-Independent Code (PIC) flag
+gcc -fPIC -c math_utils.c -o math_utils.o
+
+# Create a shared library
+gcc -shared -o libmathutils.so math_utils.o
+\end{lstlisting}
+
+The critical flags:
+\begin{itemize}
+    \item \texttt{-fPIC}: Generate \textbf{position-independent code} (PIC). This allows the code to be loaded at any memory address.
+    \item \texttt{-shared}: Tells the linker to produce a shared library instead of an executable
+\end{itemize}
+
+\textbf{Why Position-Independent Code?}
+
+Static libraries are linked at a fixed address known at link time. But dynamic libraries must be capable of being loaded at different addresses in different processes, because the address space layout varies depending on what other libraries are loaded.
+
+PIC achieves this through:
+\begin{itemize}
+    \item \textbf{Relative addressing}: Using relative jumps and calls instead of absolute addresses
+    \item \textbf{GOT (Global Offset Table)}: A table of pointers to external data
+    \item \textbf{PLT (Procedure Linkage Table)}: Indirect jumps for external function calls
+\end{itemize}
+
+We'll explore GOT and PLT in detail in section \ref{sec:plt-got}.
+
+\subsection{Using a Dynamic Library}
+
+Using a dynamic library looks similar to using a static library from the programmer's perspective:
+
+\begin{lstlisting}[language=bash]
+gcc main.c -o main -L. -lmathutils
+\end{lstlisting}
+
+But the resulting executable is fundamentally different:
+
+\begin{lstlisting}[language=bash]
+# Check the dynamic library dependencies
+ldd main
+\end{lstlisting}
+
+Typical output:
+\begin{verbatim}
+    linux-vdso.so.1 (0x00007ffc12345000)
+    libmathutils.so => ./libmathutils.so (0x00007f8b4a1b2000)
+    libc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x00007f8b49fe0000)
+    /lib64/ld-linux-x86-64.so.2 (0x00007f8b4a3b5000)
+\end{verbatim}
+
+The \texttt{ldd} command shows which shared libraries our executable depends on. Notably:
+\begin{itemize}
+    \item \texttt{libmathutils.so} is listed as a dependency
+    \item The executable doesn't contain the library code—it just has a reference to it
+\end{itemize}
+
+When we run \texttt{./main}:
+\begin{enumerate}
+    \item The operating system's \textbf{dynamic linker} (\texttt{ld-linux.so}) runs first
+    \item It reads the executable's list of needed shared libraries
+    \item It loads each required library into memory
+    \item It resolves all symbol references between the executable and libraries
+    \item Finally, it transfers control to the program's \texttt{main} function
+\end{enumerate}
+
+\subsection{Library Search Paths}
+
+The dynamic linker needs to find the \texttt{.so} files at runtime. It searches in this order:
+
+\begin{enumerate}
+    \item \textbf{RPATH/RUNPATH}: Embedded in the executable (specified with \texttt{-Wl,-rpath} during compilation)
+    \item \textbf{LD\_LIBRARY\_PATH}: Environment variable (colon-separated list of directories)
+    \item \textbf{Trusted system directories}: \texttt{/lib}, \texttt{/usr/lib}, and others configured in \texttt{/etc/ld.so.conf}
+\end{enumerate}
+
+Example with RPATH:
+\begin{lstlisting}[language=bash]
+gcc main.c -o main -L. -lmathutils -Wl,-rpath,/path/to/libs
+\end{lstlisting}
+
+Example with LD\_LIBRARY\_PATH:
+\begin{lstlisting}[language=bash]
+export LD_LIBRARY_PATH=/path/to/libs:$LD_LIBRARY_PATH
+./main
+\end{lstlisting}
+
+For system-wide installation:
+\begin{lstlisting}[language=bash]
+sudo cp libmathutils.so /usr/local/lib/
+sudo ldconfig  # Update the linker cache
+\end{lstlisting}
+
+\section{Dynamic Linking Internals: PLT and GOT}
+\label{sec:plt-got}
+
+\subsection{The Problem of Address Resolution}
+
+When a dynamically linked program calls a library function, how does it know where that function lives in memory? The address isn't known at compile time because:
+\begin{enumerate}
+    \item The library might be loaded at different addresses in different runs (due to ASLR)
+    \item The library might be updated to a different version
+\end{enumerate}
+
+The solution involves two data structures: \textbf{PLT} (Procedure Linkage Table) and \textbf{GOT} (Global Offset Table).
+
+\subsection{PLT: Procedure Linkage Table}
+
+The PLT is a table of \textbf{stubs}—small pieces of code that jump to the actual function. Each external function has an entry in the PLT.
+
+When your code calls a library function like \texttt{printf}, it actually jumps to the PLT entry for \texttt{printf}.
+
+\subsection{GOT: Global Offset Table}
+
+The GOT is a table of \textbf{addresses}—pointers to the actual locations of external symbols. Each PLT entry has a corresponding GOT entry.
+
+\subsection{Lazy Binding: The First Call}
+
+Modern systems use \textbf{lazy binding} to optimize startup time. Library functions aren't resolved until they're actually called. Here's what happens on the first call to \texttt{printf}:
+
+\begin{enumerate}
+    \item \textbf{Your code} calls \texttt{printf}
+    \item \textbf{Actually calls} \texttt{PLT[printf]} (the PLT entry)
+    \item \textbf{PLT entry} jumps to the address in \texttt{GOT[printf]}
+    \item \textbf{Initially}, \texttt{GOT[printf]} points back to the PLT resolver
+    \item \textbf{PLT resolver} runs and:
+    \begin{enumerate}
+        \item Identifies which symbol needs resolution (\texttt{printf})
+        \item Asks the dynamic linker to find the real address of \texttt{printf} in libc
+        \item Writes that address into \texttt{GOT[printf]}
+        \item Jumps to the real \texttt{printf}
+    \end{enumerate}
+    \item \textbf{Future calls} to \texttt{printf} jump directly from PLT to the real address via GOT (no resolver needed)
+\end{enumerate}
+
+This is called \textbf{lazy binding} because resolution happens "lazily"—only when needed.
+
+\subsection{Observing PLT and GOT}
+
+You can examine the PLT and GOT using various tools:
+
+\begin{lstlisting}[language=bash]
+# Compile a program that uses library functions
+gcc -o demo demo.c -L. -lmathutils
+
+# Examine the PLT
+objdump -d -j .plt demo
+
+# Examine the GOT
+objdump -d -j .got demo
+objdump -d -j .got.plt demo
+
+# See relocation entries (what will be resolved)
+readelf -r demo
+\end{lstlisting}
+
+\section{Static vs Dynamic Libraries: Tradeoffs}
+
+\subsection{Binary Size Comparison}
+
+Let's compare executable sizes with actual numbers:
+
+\textbf{Static linking}:
+\begin{lstlisting}[language=bash]
+gcc -o main_static main.c libmathutils.a
+ls -lh main_static
+# Output: -rwxr-xr-x 1 user user 872K Jan 10 10:00 main_static
+\end{lstlisting}
+
+\textbf{Dynamic linking}:
+\begin{lstlisting}[language=bash]
+gcc -o main_dynamic main.c -lmathutils
+ls -lh main_dynamic
+# Output: -rwxr-xr-x 1 user user 16K Jan 10 10:00 main_dynamic
+\end{lstlisting}
+
+The dynamically linked executable is \textbf{much smaller} because it doesn't contain the library code.
+
+\subsection{Startup Time Comparison}
+
+\textbf{Static linking}: Faster startup (no dynamic linking overhead)
+
+\textbf{Dynamic linking}: Slower startup due to:
+\begin{enumerate}
+    \item Loading and parsing the executable
+    \item Loading required shared libraries
+    \item Resolving symbols (at least for non-lazy-bound functions)
+\end{enumerate}
+
+However, this difference is usually imperceptible for small programs.
+
+\subsection{Memory Usage When Running Multiple Programs}
+
+This is where dynamic libraries really shine:
+
+\textbf{Scenario}: 10 programs using the same library
+
+\textbf{Static linking}:
+\begin{itemize}
+    \item Each program has its own copy of the library code in memory
+    \item Total memory usage: $10 \times$ library size
+\end{itemize}
+
+\textbf{Dynamic linking}:
+\begin{itemize}
+    \item The library is loaded once into physical memory
+    \item Each program has its own copy of the library's data (writable sections)
+    \item The library's code (read-only sections) is shared among all processes
+    \item Total memory usage: $1 \times$ library code $+ 10 \times$ library data
+\end{itemize}
+
+For large libraries like libc, the memory savings can be enormous.
+
+\section{Key Takeaways}
+
+\begin{enumerate}
+    \item \textbf{Static libraries (.a)} are archives of object files that are copied into executables at link time, producing self-contained but larger binaries.
+    \item \textbf{Dynamic libraries (.so)} are loaded at runtime by the dynamic linker, producing smaller binaries and enabling code sharing between processes.
+    \item \textbf{Position-independent code (PIC)} allows shared libraries to be loaded at any memory address, essential for dynamic linking.
+    \item \textbf{PLT and GOT} are data structures that enable runtime symbol resolution through indirection, with lazy binding deferring resolution until first use.
+    \item \textbf{Library search paths} (RPATH, LD\_LIBRARY\_PATH, system paths) control where the dynamic linker looks for shared libraries.
+    \item \textbf{Symbol visibility} controls which functions are exported from a library, enforcing API boundaries and improving load times.
+    \item \textbf{Tradeoffs}: Static linking gives simpler deployment and faster startup; dynamic linking gives smaller binaries and shared memory.
+\end{enumerate}
+
+\section{Looking Ahead}
+
+In Chapter 8, we'll explore the C standard library (libc) and system calls in depth. We'll see how functions like \texttt{printf} and \texttt{malloc} are implemented, and understand the boundary between user-space code and kernel services.

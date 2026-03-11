@@ -1,34 +1,216 @@
-\chapter{ABI and Cross-Platform}
+\chapter{ABI and Cross-Platform Compilation}
 
-\section{Purpose}
-Explain ABI contracts and cross-platform compilation differences.
+\section{Introduction}
 
-\section{Outline}
+We've seen how C code is compiled, linked, and executed. But what happens when you need to run your compiled binary on a different machine with a different CPU architecture or operating system? Why can't you just copy the binary and run it?
+
+This chapter explores \textbf{ABI (Application Binary Interface)}—the set of conventions that enable binary code to work together at the machine level. Unlike API (source-level compatibility), ABI is about binary compatibility: how functions are called, how data is laid out in memory, and how the operating system expects programs to behave.
+
+Understanding ABI is crucial for:
+\begin{itemize}
+    \item \textbf{Cross-platform development}: Writing code that compiles and runs correctly on different platforms
+    \item \textbf{Cross-compilation}: Building binaries for one architecture on another
+    \item \textbf{Library development}: Creating libraries that work across different compilers and platforms
+    \item \textbf{Debugging}: Understanding mysterious crashes when mixing code from different sources
+\end{itemize}
+
+\section{What is an ABI?}
+
+An \textbf{Application Binary Interface (ABI)} is a contract between compiled code components that specifies:
+
 \begin{enumerate}
-  \item What is an ABI
-  \item Calling conventions in x86\_64 vs AArch64
-  \item Binary compatibility constraints
-  \item ELF vs PE
-  \item Linux vs Windows toolchains
-  \item Cross-compilation toolchains
+    \item \textbf{Calling convention}: How functions call each other (argument passing, return values, stack cleanup)
+    \item \textbf{Data representation}: Size and alignment of data types
+    \item \textbf{Register usage}: Which registers are preserved vs. volatile
+    \item \textbf{Object file format}: ELF, PE, Mach-O, etc.
+    \item \textbf{System call interface}: How to request kernel services
+    \item \textbf{Runtime behavior}: Stack layout, exception handling, initialization
 \end{enumerate}
 
-\section{Content Plan}
+\textbf{ABI vs. API}:
+
+\begin{description}
+    \item[API (Application Programming Interface)] Source-level interface. Defines function names, parameters, return types. Enables recompilation with different compilers/languages. Example: C header files.
+    \item[ABI (Application Binary Interface)] Binary-level interface. Defines binary representation and calling conventions. Enables linking code compiled by different compilers. Example: System V AMD64 ABI.
+\end{description}
+
+\begin{tip}
+API compatibility means you can recompile the code. ABI compatibility means you can link the binaries directly without recompilation.
+\end{tip}
+
+\section{Components of an ABI}
+
+\subsection{Data Type Representation}
+
+ABIs specify the size and representation of fundamental data types.
+
+\textbf{Example: x86-64 Linux (LP64)}
+
+\begin{tabular}{|l|c|c|l|}
+\hline
+\textbf{Type} & \textbf{Size} & \textbf{Alignment} & \textbf{Notes} \\
+\hline
+\texttt{char} & 1 byte & 1 & - \\
+\hline
+\texttt{short} & 2 bytes & 2 & - \\
+\hline
+\texttt{int} & 4 bytes & 4 & - \\
+\hline
+\texttt{long} & 8 bytes & 8 & Longs are 64-bit! \\
+\hline
+\texttt{long long} & 8 bytes & 8 & - \\
+\hline
+\texttt{void*} & 8 bytes & 8 & Pointers are 64-bit \\
+\hline
+\texttt{float} & 4 bytes & 4 & IEEE 754 single \\
+\hline
+\texttt{double} & 8 bytes & 8 & IEEE 754 double \\
+\hline
+\end{tabular}
+
+\textbf{Naming schemes}:
 \begin{itemize}
-  \item ABI as a stable binary interface.
-  \item Register and stack argument passing differences.
-  \item Structure layout, alignment, and endianness effects.
-  \item ELF and PE loader expectations.
-  \item Cross toolchain selection and sysroot use.
+    \item \textbf{ILP32}: int, long, pointer are 32-bit
+    \item \textbf{LP64}: long and pointer are 64-bit (int is 32-bit)
+    \item \textbf{LLP64}: long long and pointer are 64-bit (Windows x64)
 \end{itemize}
 
-\section{Key Terms}
+\subsection{Calling Conventions}
+
+ABIs define how functions call each other—where arguments go, where return values go, who cleans the stack.
+
+\textbf{System V AMD64 ABI (Linux/Unix x86-64)}:
+
+Arguments (in order):
+\begin{enumerate}
+    \item RDI, RSI, RDX, RCX, R8, R9 (first 6 integer/pointer arguments)
+    \item XMM0-XMM7 (first 8 floating-point arguments)
+    \item Stack (remaining arguments)
+\end{enumerate}
+
+Return value:
 \begin{itemize}
-  \item ABI
-  \item calling convention
-  \item sysroot
-  \item cross-compilation
+    \item Integer/pointer: RAX
+    \item Floating-point: XMM0
+    \item Large structs: Hidden pointer parameter
 \end{itemize}
 
-\section{Experiment}
-See abi-and-cross-platform-exp/abi-and-cross-platform-exp.tex in this chapter.
+\textbf{Microsoft x64 ABI (Windows x64)}:
+
+Arguments (in order):
+\begin{enumerate}
+    \item RCX, RDX, R8, R9 (first 4 arguments)
+    \item Stack (remaining arguments)
+\end{enumerate}
+
+Return value:
+\begin{itemize}
+    \item RAX (integer/pointer)
+    \item XMM0 (floating-point)
+\end{itemize}
+
+\textbf{Key difference}: Different registers for arguments! This is why you can't link object files between Windows and Linux.
+
+\section{Cross-Compilation}
+
+\subsection{What is Cross-Compilation?}
+
+\textbf{Native compilation}: Build binaries for the same architecture/host
+\begin{itemize}
+    \item x86-64 Linux $\rightarrow$ x86-64 Linux binary
+\end{itemize}
+
+\textbf{Cross-compilation}: Build binaries for a different architecture/host
+\begin{itemize}
+    \item x86-64 Linux $\rightarrow$ ARM64 Linux binary
+    \item x86-64 macOS $\rightarrow$ x86-64 Linux binary
+\end{itemize}
+
+\subsection{Cross-Compilation Toolchains}
+
+A cross-compilation toolchain includes:
+\begin{itemize}
+    \item \textbf{Cross-compiler}: gcc that generates code for target architecture
+    \item \textbf{Cross-assembler}: as for target
+    \item \textbf{Cross-linker}: ld for target
+    \item \textbf{Sysroot}: Target system's headers and libraries
+\end{itemize}
+
+\textbf{Naming convention}: \texttt{\{host\}-\{target\}-\{tool\}}
+
+Examples:
+\begin{itemize}
+    \item \texttt{x86\_64-linux-gnu-gcc}: Native compiler for x86-64 Linux
+    \item \texttt{aarch64-linux-gnu-gcc}: Cross-compiler for ARM64 Linux (from x86-64 host)
+    \item \texttt{x86\_64-w64-mingw32-gcc}: Cross-compiler for Windows (from Linux host)
+\end{itemize}
+
+\subsection{Installing Cross-Compilers}
+
+\textbf{Ubuntu/Debian}:
+\begin{lstlisting}[language=bash]
+# ARM64 cross-compiler
+sudo apt-get install gcc-aarch64-linux-gnu
+
+# Windows cross-compiler
+sudo apt-get install gcc-mingw-w64-x86-64
+
+# Check installation
+aarch64-linux-gnu-gcc --version
+x86_64-w64-mingw32-gcc --version
+\end{lstlisting}
+
+\subsection{Cross-Compiling a Program}
+
+\textbf{Simple cross-compilation}:
+\begin{lstlisting}[language=bash]
+# Compile for ARM64 instead of x86-64
+aarch64-linux-gnu-gcc -o hello_arm64 hello.c
+
+# Check the output file
+file hello_arm64
+# Output: ELF 64-bit LSB executable, ARM aarch64...
+
+# It won't run on x86-64!
+./hello_arm64
+# bash: ./hello_arm64: cannot execute binary file
+
+# But it works on ARM64 systems
+scp hello_arm64 user@arm64-machine:~
+\end{lstlisting}
+
+\section{ELF vs. PE vs. Mach-O}
+
+Different operating systems use different executable file formats:
+
+\subsection{ELF (Executable and Linkable Format)}
+
+\textbf{Used by}: Linux, most Unix-like systems, many embedded systems
+
+\textbf{File type}: \texttt{ELF 64-bit LSB executable, x86-64, version 1 (SYSV)}
+
+\subsection{PE (Portable Executable)}
+
+\textbf{Used by}: Windows
+
+\textbf{File type}: \texttt{PE32+ executable (console) x86-64, for MS Windows}
+
+\subsection{Mach-O}
+
+\textbf{Used by}: macOS, iOS
+
+\textbf{File type}: \texttt{Mach-O 64-bit executable x86\_64}
+
+\section{Key Takeaways}
+
+\begin{enumerate}
+    \item \textbf{ABI is binary-level contract}: Unlike API (source-level), ABI defines how binaries interact—data layout, calling conventions, register usage.
+    \item \textbf{Data types vary by platform}: \texttt{long}, \texttt{void*}, and even \texttt{int} may have different sizes. Use fixed-width types (\texttt{int32\_t}) for binary data.
+    \item \textbf{Calling conventions differ}: x86-64 System V (Linux) uses different argument registers than Microsoft x64 (Windows), preventing binary compatibility.
+    \item \textbf{Cross-compilation requires toolchains}: Build binaries for different architectures using cross-compilers like \texttt{aarch64-linux-gnu-gcc}.
+    \item \textbf{Executable formats differ}: ELF (Linux), PE (Windows), and Mach-O (macOS) are incompatible at the binary level.
+\end{enumerate}
+
+\section{Looking Ahead}
+
+In Chapter 10, we'll explore \textbf{process loading and memory layout}—how the operating system loads executables into memory and sets up the runtime environment.

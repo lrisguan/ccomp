@@ -1,40 +1,62 @@
-\begin{experiment}
-\textbf{Objective}
+\section{Experiment: ABI and Cross-Platform}
+
+\subsection{Objective}
+Explore calling conventions and ABI differences across platforms.
+
+\subsection{Setup Requirements}
 \begin{itemize}
-  \item Build an AArch64 binary on an x86\_64 host and inspect the output format.
+\item GCC compiler
+\item objdump tool
+\item Linux environment
 \end{itemize}
 
-\textbf{Setup requirements}
-\begin{itemize}
-  \item Cross toolchain (for example, aarch64-linux-gnu-gcc).
-  \item file utility available.
-\end{itemize}
+\subsection{Part 1: Examining Calling Conventions}
 
-\textbf{Step-by-step commands}
-\begin{enumerate}
-  \item Write a simple program:
+Create a function with multiple arguments:
+
 \begin{lstlisting}[language=C]
-int main(void) { return 0; }
-\end{lstlisting}
-  \item Cross-compile:
-\begin{lstlisting}[language=bash]
-aarch64-linux-gnu-gcc -o hello_arm64 hello.c
-\end{lstlisting}
-  \item Inspect the binary type:
-\begin{lstlisting}[language=bash]
-file hello_arm64
-\end{lstlisting}
-\end{enumerate}
+int test_args(int a, int b, int c, int d, int e, int f, int g) {
+    return a + b + c + d + e + f + g;
+}
 
-\textbf{Expected output explanation}
-\begin{itemize}
-  \item The binary is marked as AArch64 and cannot run on x86\_64 without emulation.
-\end{itemize}
+int main(void) {
+    return test_args(1, 2, 3, 4, 5, 6, 7);
+}
+\end{lstlisting}
 
-\textbf{Questions for reader}
+\subsection{Part 2: Viewing Assembly}
+
+Disassemble to see argument passing:
+
+\begin{lstlisting}[language=bash]
+gcc -O0 test_args.c -c -o test_args.o
+objdump -d test_args.o
+\end{lstlisting}
+
+\subsection{Part 3: System V AMD64 ABI}
+
+Check which registers are used:
+
+\begin{lstlisting}[language=bash]
+# Arguments: RDI, RSI, RDX, RCX, R8, R9
+# Return: RAX
+objdump -d test_args.o | grep -A5 "test_args"
+\end{lstlisting}
+
+\subsection{Part 4: Stack Alignment}
+
+Verify 16-byte alignment:
+
+\begin{lstlisting}[language=bash]
+gcc -S test_args.c -o test_args.s
+grep -A2 "pushq.*rbp" test_args.s
+\end{lstlisting}
+
+\subsection{Questions for Reader}
+
 \begin{enumerate}
-  \item What ABI does the toolchain target by default?
-  \item Which sysroot is used and why does it matter?
-  \item What changes if you build a PIE binary?
+\item Which registers are used for the first 6 arguments in the System V AMD64 ABI?
+\item Where are additional arguments passed?
+\item Why must the stack be 16-byte aligned before a call?
+\item How does the Microsoft x64 calling convention differ?
 \end{enumerate}
-\end{experiment}

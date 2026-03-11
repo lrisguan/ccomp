@@ -2,16 +2,17 @@
 \ProvidesPackage{ccomp-style}[2026/02/23 C compilation book style]
 
 \RequirePackage[margin=1in]{geometry}
-\RequirePackage{newtxtext}
-\RequirePackage{newtxmath}
-\RequirePackage[T1]{fontenc}
 \RequirePackage{microtype}
-\RequirePackage{hyperref}
 \RequirePackage{xcolor}
 \RequirePackage{listings}
 \RequirePackage{titlesec}
 \RequirePackage{tcolorbox}
 \RequirePackage{hyperref}
+\RequirePackage{fontspec}
+
+\setmainfont{DejaVu Serif}
+\setsansfont{DejaVu Sans}
+\setmonofont{DejaVu Sans Mono}
 
 \hypersetup{
   colorlinks=true,
@@ -23,9 +24,32 @@
 \definecolor{ccompbg}{HTML}{F7F7F7}
 \definecolor{ccompborder}{HTML}{D0D0D0}
 
+\lstdefinelanguage{nasm}{
+  keywords={section, global, extern, mov, push, pop, lea, add, sub, imul, idiv, 
+            jmp, je, jne, jg, jl, call, ret, nop, db, dw, dd, dq, equ, times,
+            eax, ebx, ecx, edx, esi, edi, ebp, esp, rax, rbx, rcx, rdx, rsi, rdi, rbp, rsp},
+  keywordstyle=\color{blue}\bfseries,
+  comment=[l]{;},
+  commentstyle=\color{gray}\ttfamily,
+  stringstyle=\color{red}\ttfamily,
+  morestring=[b]",
+  morestring=[b]',
+  sensitive=false
+}
+
+\lstdefinelanguage{ld}{
+  keywords={ENTRY, SECTIONS, ALIGN, BLOCK, PROVIDE, ABSOLUTE, AT, LOADADDR},
+  keywordstyle=\color{blue}\bfseries,
+  comment=[l]{/*},
+  morecomment=[s]{/*}{*/},
+  stringstyle=\color{red}\ttfamily,
+  morestring=[b]",
+  sensitive=false
+}
+
 \lstdefinestyle{ccomp}{
   backgroundcolor=\color{ccompbg},
-  basicstyle=\ttfamily\small,
+  basicstyle=\fontspec{DejaVu Sans Mono}\small,
   frame=single,
   rulecolor=\color{ccompborder},
   breaklines=true,
@@ -40,25 +64,38 @@
   {\LARGE}
 
 \newtcolorbox{definition}{
-  colback=white,
+  colback=green,
   colframe=ccompborder,
   title=Definition
 }
 
 \newtcolorbox{example}{
-  colback=white,
+  colback=blue,
   colframe=ccompborder,
   title=Example
 }
 
 \newtcolorbox{experiment}{
-  colback=white,
+  colback=cyan`',
   colframe=ccompborder,
   title=Experiment
 }
 
 \newtcolorbox{warning}{
-  colback=white,
+  colback=yellow,
   colframe=ccompborder,
   title=Warning
+}
+
+\newtcolorbox{tip}{
+  colback=gray,
+  colframe=ccompborder,
+  title=Tip
+}
+
+
+\newtcolorbox{recommendation}{
+  colback=orange,
+  colframe=ccompborder,
+  title=Recommendation
 }

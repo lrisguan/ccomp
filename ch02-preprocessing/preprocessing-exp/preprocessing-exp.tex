@@ -1,42 +1,285 @@
 \begin{experiment}
 \textbf{Objective}
+
+Observe preprocessing in action by examining macro expansion, file inclusion, and conditional compilation.
+
+\textbf{Setup Requirements}
+
 \begin{itemize}
-  \item Observe how macros and includes are expanded in the preprocessor output.
+    \item GCC or Clang compiler
+    \item Linux or Unix-like environment
+    \item Basic familiarity with command line
 \end{itemize}
 
-\textbf{Setup requirements}
-\begin{itemize}
-  \item gcc or clang installed.
-  \item A shell environment (Linux, WSL, or MSYS2).
-\end{itemize}
+\textbf{Step-by-Step Commands}
 
-\textbf{Step-by-step commands}
+\subsection{Part 1: Basic Preprocessing}
+
 \begin{enumerate}
-  \item Create a file with macros:
+    \item Create a simple source file:
+
 \begin{lstlisting}[language=C]
-#define SCALE(x) ((x) * 2)
-#define FLAG 1
-#if FLAG
-int value = SCALE(3);
+// demo.c
+#include <stdio.h>
+
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+#define DEBUG 1
+
+int main(void) {
+    int x = MAX(3, 5);
+\#ifdef DEBUG
+    printf("Debug: x = \%d\n", x);
+\#endif
+    return 0;
+}
+\end{lstlisting}
+
+    \item Run the preprocessor only:
+
+\begin{lstlisting}[language=bash]
+gcc -E demo.c -o demo.i
+\end{lstlisting}
+
+    \item View the preprocessed output:
+
+\begin{lstlisting}[language=bash]
+head -50 demo.i
+tail -20 demo.i
+\end{lstlisting}
+\end{enumerate}
+
+\textbf{Expected Output}: You'll see the expanded \texttt{\#include <stdio.h>} (hundreds of lines from the standard library), the macro \texttt{MAX(3, 5)} expanded to \texttt{((3) > (5) ? (3) : (5))}, and the debug printf included because \texttt{DEBUG} is defined.
+
+\subsection{Part 2: Macro Expansion Pitfalls}
+
+\begin{enumerate}
+    \item Create a file demonstrating macro issues:
+
+\begin{lstlisting}[language=C]
+// macro\_pitfalls.c
+#define SQUARE(x) x * x
+#define SAFE_SQUARE(x) ((x) * (x))
+
+int main(void) {
+    int a = SQUARE(1 + 2);      // Problem!
+    int b = SAFE_SQUARE(1 + 2); // Safe
+
+    int i = 5;
+    int c = SQUARE(i++);        // Double increment!
+    // int d = SAFE_SQUARE(i++); // Still problematic
+
+    return 0;
+}
+\end{lstlisting}
+
+    \item Preprocess and observe:
+
+\begin{lstlisting}[language=bash]
+gcc -E macro_pitfalls.c | grep -A5 "int a"
+\end{lstlisting}
+\end{enumerate}
+
+\textbf{Expected Output}:
+\begin{lstlisting}[language=C]
+int a = 1 + 2 * 1 + 2;  // = 5, not 9!
+int b = ((1 + 2) * (1 + 2));  // = 9, correct
+\end{lstlisting}
+
+\subsection{Part 3: Conditional Compilation}
+
+\begin{enumerate}
+    \item Create a file with conditional compilation:
+
+\begin{lstlisting}[language=C]
+// config.c
+#define VERSION 3
+#define PLATFORM_LINUX 1
+
+#if VERSION < 2
+    #define FEATURE_LEVEL "Basic"
+#elif VERSION < 4
+    #define FEATURE_LEVEL "Standard"
+#else
+    #define FEATURE_LEVEL "Premium"
+#endif
+
+#ifdef PLATFORM_LINUX
+    #define PATH_SEPARATOR '/'
+#else
+    #define PATH_SEPARATOR '\\'
+#endif
+
+int main(void) {
+    const char* level = FEATURE_LEVEL;
+    char sep = PATH_SEPARATOR;
+    return 0;
+}
+\end{lstlisting}
+
+    \item Preprocess with different definitions:
+
+\begin{lstlisting}[language=bash]
+gcc -E config.c | grep "level\|sep"
+gcc -E -DVERSION=5 config.c | grep "level\|sep"
+gcc -E -UPLATFORM_LINUX config.c | grep "level\|sep"
+\end{lstlisting}
+\end{enumerate}
+
+\subsection{Part 4: Include Paths and Header Guards}
+
+\begin{enumerate}
+    \item Create a custom header:
+
+\begin{lstlisting}[language=C]
+// myheader.h
+#ifndef MYHEADER_H
+#define MYHEADER_H
+
+int my_function(int x);
+
+#define MY_CONSTANT 42
+
 #endif
 \end{lstlisting}
-  \item Run the preprocessor with macro output:
-\begin{lstlisting}[language=bash]
-gcc -E -dD -o macros.i macros.c
+
+    \item Create a source file that includes it twice:
+
+\begin{lstlisting}[language=C]
+// double\_include.c
+#include "myheader.h"
+#include "myheader.h"  // Safe due to header guard
+
+int main(void) {
+    int x = MY_CONSTANT;
+    return 0;
+}
 \end{lstlisting}
-  \item Inspect macros.i and locate the expanded macro lines.
+
+    \item Observe the preprocessor output:
+
+\begin{lstlisting}[language=bash]
+gcc -E double_include.c | grep -c "MY_CONSTANT"
+\end{lstlisting}
+
+\textbf{Expected Output}: \texttt{1} (the header guard prevents double inclusion)
+
+    \item Test include path:
+
+\begin{lstlisting}[language=bash]
+mkdir -p /tmp/headers
+mv myheader.h /tmp/headers/
+gcc -E -I/tmp/headers double_include.c | tail -5
+\end{lstlisting}
 \end{enumerate}
 
-\textbf{Expected output explanation}
+\subsection{Part 5: Stringification and Token Pasting}
+
+\begin{enumerate}
+    \item Create a file demonstrating advanced macros:
+
+\begin{lstlisting}[language=C]
+// advanced\_macros.c
+#define STRINGIFY(x) \#x
+#define TOSTRING(x) STRINGIFY(x)
+#define CONCAT(a, b) a \#\# b
+#define MAKE_FUNC(name) void func_\#\#name(void) { printf(\#name "\n"); }
+
+#define VALUE 42
+
+MAKE_FUNC(alpha)
+MAKE_FUNC(beta)
+
+int main(void) {
+    const char* s1 = STRINGIFY(VALUE);
+    const char* s2 = TOSTRING(VALUE);
+    int CONCAT(my, var) = 10;
+    func_alpha();
+    func_beta();
+    return 0;
+}
+\end{lstlisting}
+
+    \item Preprocess and examine:
+
+\begin{lstlisting}[language=bash]
+gcc -E advanced_macros.c | grep -A2 "int main"
+\end{lstlisting}
+\end{enumerate}
+
+\textbf{Expected Output}:
+\begin{lstlisting}[language=C]
+void func_alpha(void) { printf("alpha" "\n"); }
+void func_beta(void) { printf("beta" "\n"); }
+
+int main(void) {
+    const char* s1 = "VALUE";
+    const char* s2 = "42";
+    int myvar = 10;
+\end{lstlisting}
+
+\subsection{Part 6: Predefined Macros}
+
+\begin{enumerate}
+    \item Create a file using predefined macros:
+
+\begin{lstlisting}[language=C]
+// predefined.c
+#include <stdio.h>
+
+int main(void) {
+    printf("File: \%s\n", __FILE__);
+    printf("Line: \%d\n", __LINE__);
+    printf("Function: \%s\n", __func__);
+    printf("Date: \%s\n", __DATE__);
+    printf("Time: \%s\n", __TIME__);
+    printf("STDC: \%d\n", __STDC__);
+    printf("STDC_VERSION: \%ldL\n", __STDC_VERSION__);
+    return 0;
+}
+\end{lstlisting}
+
+    \item Compile and run:
+
+\begin{lstlisting}[language=bash]
+gcc predefined.c -o predefined && ./predefined
+\end{lstlisting}
+\end{enumerate}
+
+\subsection{Part 7: Include Dependencies}
+
+\begin{enumerate}
+    \item Generate include dependency graph:
+
+\begin{lstlisting}[language=bash]
+gcc -M demo.c
+gcc -MM demo.c  # System headers excluded
+gcc -H demo.c 2>&1 | head -20
+\end{lstlisting}
+\end{enumerate}
+
+\textbf{Questions for Reader}
+
+\begin{enumerate}
+    \item \textbf{Macro Expansion}: Why does \texttt{SQUARE(1 + 2)} produce 5 instead of 9? How does proper parenthesization fix this?
+
+    \item \textbf{Side Effects}: What happens when you pass \texttt{i++} to the \texttt{MAX} macro? Why should you avoid macros with arguments that have side effects?
+
+    \item \textbf{Header Guards}: What would happen if you removed the \texttt{\#ifndef} guard from \texttt{myheader.h} and included it twice? What error would you get?
+
+    \item \textbf{Conditional Compilation}: How can you use preprocessor conditionals to create a debug build vs. release build of your program?
+
+    \item \textbf{Stringification}: Why do you need two levels of macros (STRINGIFY and TOSTRING) to convert a macro's value to a string instead of its name?
+
+    \item \textbf{Real-World Application}: How might you use the X-macro pattern to generate repetitive code like switch statements or enum-to-string conversions?
+\end{enumerate}
+
+\textbf{Further Exploration}
+
 \begin{itemize}
-  \item Macro definitions appear at the top when using -dD.
-  \item The expansion replaces macro invocations with raw tokens.
+    \item Examine how \texttt{assert.h} uses preprocessing to include file/line info
+    \item Look at how large projects (like the Linux kernel) use conditional compilation
+    \item Study the \texttt{-D} and \texttt{-U} flags for defining/undefining macros from the command line
+    \item Explore \texttt{\#pragma} directives and their uses
 \end{itemize}
 
-\textbf{Questions for reader}
-\begin{enumerate}
-  \item How are nested macros expanded and in what order?
-  \item What happens if FLAG is set to 0?
-  \item Which lines come from system headers and why?
-\end{enumerate}
 \end{experiment}

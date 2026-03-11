@@ -1,33 +1,430 @@
-\chapter{Standard Library and Syscalls}
+\chapter{Standard Library and System Calls}
 
-\section{Purpose}
-Distinguish C standard library responsibilities from kernel system calls.
+\section{Introduction}
 
-\section{Outline}
+Every C programmer uses functions like \texttt{printf}, \texttt{malloc}, \texttt{open}, and \texttt{read}. But where do these functions come from? Are they part of the C language, part of the operating system, or something else entirely?
+
+This chapter explores the layered architecture that sits between your C code and the bare hardware. We'll distinguish between:
+\begin{itemize}
+    \item \textbf{The C standard library (libc)}: User-space code that provides the standard C API
+    \item \textbf{System calls}: The kernel interface that performs privileged operations
+    \item \textbf{The boundary between user mode and kernel mode}: Where protection and privilege transitions occur
+\end{itemize}
+
+Understanding this distinction is crucial for:
+\begin{itemize}
+    \item \textbf{Performance optimization}: Knowing when library functions vs. raw syscalls are appropriate
+    \item \textbf{Debugging}: Understanding error reporting and stack traces
+    \item \textbf{Portability}: Writing code that works across different platforms
+    \item \textbf{Security}: Understanding privilege boundaries and potential vulnerabilities
+\end{itemize}
+
+\section{The Layered Architecture}
+
+Modern Unix-like systems have a clear separation between user-space programs and the kernel:
+
+\begin{verbatim}
+┌─────────────────────────────────────────────────────────────┐
+│                    Your C Program                           │
+│                                                             │
+│  main() {                                                   │
+│      printf("Hello\n");  // ← Not a syscall!                │
+│      malloc(1024);        // ← Not a syscall!               │
+│  }                                                          │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│              C Standard Library (libc)                      │
+│                                                             │
+│  • Wrappers for standard C functions                        │
+│  • Buffering, caching, optimization                         │
+│  • POSIX API implementation                                 │
+│  • Error handling (errno)                                   │
+│                                                             │
+│  Examples: printf(), malloc(), fopen(), strlen()            │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                 System Call Interface                       │
+│                                                             │
+│  • Well-defined entry points into kernel                    │
+│  • Mode switch: user → kernel                               │
+│  • Argument validation and copying                          │
+│                                                             │
+│  Examples: write(), brk(), mmap(), open()                   │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                      Operating System Kernel                │
+│                                                             │
+│  • Process management                                       │
+│  • Memory management                                        │
+│  • File system                                              │
+│  • Device drivers                                           │
+│  • Security and access control                              │
+└─────────────────────────────────────────────────────────────┘
+\end{verbatim}
+
+\textbf{Key insight}: Most C library functions are \textbf{not} system calls. They're user-space code that may or may not eventually make system calls.
+
+\section{What is a System Call?}
+
+A \textbf{system call} (syscall) is a programmatic way a program requests a service from the operating system kernel. System calls are the only legitimate way to access kernel resources.
+
+\subsection{Why System Calls Exist}
+
+User programs cannot directly access:
+\begin{itemize}
+    \item \textbf{Hardware devices}: Direct hardware access would allow any program to monopolize or damage devices
+    \item \textbf{Other processes' memory}: Without isolation, buggy or malicious programs could corrupt other programs
+    \item \textbf{Network stack}: Raw network access requires privilege and coordination
+    \item \textbf{File system}: File permissions and access control need kernel enforcement
+\end{itemize}
+
+The kernel provides \textbf{controlled access} to these resources through system calls.
+
+\subsection{User Mode vs. Kernel Mode}
+
+CPUs support different privilege levels (called \textbf{rings} on x86):
+\begin{itemize}
+    \item \textbf{Ring 0 (Kernel Mode)}: Unrestricted access to all hardware and memory
+    \item \textbf{Ring 3 (User Mode)}: Restricted access; certain instructions cause traps
+\end{itemize}
+
+System calls provide a \textbf{controlled, secure gateway} from user mode to kernel mode.
+
+\subsection{How System Calls Work}
+
+Making a system call involves:
+
 \begin{enumerate}
-  \item C standard library vs system calls
-  \item glibc role and layering
-  \item User mode vs kernel mode
-  \item syscall instruction path
-  \item strace at a conceptual level
+    \item \textbf{Program preparation}: Place syscall number and arguments in registers
+    \item \textbf{Trap instruction}: Execute special instruction (e.g., \texttt{syscall} on x86-64)
+    \item \textbf{CPU mode switch}: CPU switches from user mode to kernel mode
+    \item \textbf{Kernel execution}: Kernel validates arguments and performs the operation
+    \item \textbf{Result return}: Kernel places result in a register and switches back to user mode
 \end{enumerate}
 
-\section{Content Plan}
+\textbf{Example: The \texttt{write} syscall on x86-64}
+
+\begin{lstlisting}[language=nasm]
+; User-space code making a raw syscall
+mov rax, 1          ; Syscall number for 'write' (on x86-64 Linux)
+mov rdi, 1          ; File descriptor 1 (stdout)
+mov rsi, msg        ; Pointer to message
+mov rdx, 13         ; Length of message
+syscall             ; Invoke kernel
+
+; Result is now in rax
+\end{lstlisting}
+
+System calls are the \textbf{only supported interface} between user and kernel code.
+
+\section{The C Standard Library (libc)}
+
+\subsection{What is libc?}
+
+\textbf{libc} is the C standard library—a collection of functions that implement the C standard library (ISO C) and POSIX APIs. On Linux, the most common implementation is \textbf{glibc} (GNU C Library).
+
+Key responsibilities:
 \begin{itemize}
-  \item Library wrappers and ABI compliance.
-  \item syscall numbers, calling conventions, and return values.
-  \item Error reporting via errno.
-  \item Why libc adds buffering and higher-level APIs.
-  \item Observing syscalls without oversimplifying the boundary.
+    \item \textbf{Standard C functions}: \texttt{printf}, \texttt{malloc}, \texttt{strcpy}, etc.
+    \item \textbf{System call wrappers}: \texttt{open}, \texttt{read}, \texttt{write}, etc.
+    \item \textbf{Buffering and caching}: Optimize performance by batching operations
+    \item \textbf{Thread safety}: Support for multithreaded programs
+    \item \textbf{Locale support}: Internationalization and localization
 \end{itemize}
 
-\section{Key Terms}
+\subsection{libc as a Wrapper Layer}
+
+Most libc functions are \textbf{wrappers} around system calls, adding value through buffering, error handling, and abstraction.
+
+\textbf{Example 1: \texttt{printf}}
+
+\texttt{printf} is \textbf{not} a system call. It's a complex user-space function:
+
+\begin{lstlisting}[language=C]
+// Simplified view of what printf does
+int printf(const char *format, ...) {
+    va_list args;
+    va_start(args, format);
+
+    // 1. Format the string in user space
+    char buffer[4096];
+    int len = vsnprintf(buffer, sizeof(buffer), format, args);
+
+    // 2. Write to stdout (which is buffered!)
+    //    stdout is a FILE* with its own buffer
+    return fwrite(buffer, 1, len, stdout);
+
+    // fwrite will eventually call the write() syscall,
+    // possibly after buffering many small writes
+}
+\end{lstlisting}
+
+The chain looks like:
+\begin{verbatim}
+printf()
+    → vfprintf() [format the string]
+        → fwrite() [manage stdio buffer]
+            → write() syscall [actual kernel I/O]
+\end{verbatim}
+
+\textbf{Why this indirection?}
+\begin{enumerate}
+    \item \textbf{Performance}: Formatting in user space avoids kernel mode switches
+    \item \textbf{Buffering}: Multiple \texttt{printf} calls can be combined into one \texttt{write} syscall
+    \item \textbf{Flexibility}: The same formatting code works for files, strings, and custom streams
+\end{enumerate}
+
+\textbf{Example 2: \texttt{malloc}}
+
+\texttt{malloc} is also \textbf{not} a system call (mostly):
+
+\begin{lstlisting}[language=C]
+void *malloc(size_t size) {
+    // Ask the heap allocator (brk/mmap syscalls under the hood)
+    // The heap allocator manages a large memory region
+    // and carves it into small pieces for your program
+
+    // Most malloc() calls don't trigger syscalls!
+    // They just carve out space from already-allocated regions
+    return heap_alloc(size);
+}
+\end{lstlisting}
+
+The heap allocator (\texttt{malloc} implementation) manages large memory regions obtained from the kernel via \texttt{brk} or \texttt{mmap} syscalls. Most \texttt{malloc} calls just carve out space from these regions—no syscall needed!
+
+\textbf{Example 3: \texttt{strlen}}
+
+\texttt{strlen} is purely user-space:
+
+\begin{lstlisting}[language=C]
+size_t strlen(const char *s) {
+    size_t len = 0;
+    while (s[len]) len++;  // Just reads memory!
+    return len;
+}
+\end{lstlisting}
+
+No syscall involved—it's just reading your program's own memory.
+
+\subsection{When libc Does Make Syscalls}
+
+Some libc functions are thin wrappers around syscalls:
+
+\begin{lstlisting}[language=C]
+// glibc's open() function (simplified)
+int open(const char *pathname, int flags, mode_t mode) {
+    // This is basically just a syscall wrapper
+    return syscall(__NR_open, pathname, flags, mode);
+}
+\end{lstlisting}
+
+But even "simple" wrappers add value:
 \begin{itemize}
-  \item libc
-  \item syscall
-  \item user mode
-  \item kernel mode
+    \item \textbf{Error handling}: Convert syscall return values to \texttt{errno}
+    \item \textbf{Thread safety}: Handle cancellation points for pthreads
+    \item \textbf{Cancellation checking}: Allow threads to be cancelled at safe points
 \end{itemize}
 
-\section{Experiment}
-See standard-library-and-syscalls-exp/standard-library-and-syscalls-exp.tex in this chapter.
+\section{System Call Numbers and Conventions}
+
+\subsection{Syscall Numbers}
+
+Each system call has a unique number. On Linux x86-64:
+
+\begin{verbatim}
+0   read
+1   write
+2   open
+3   close
+... hundreds more ...
+\end{verbatim}
+
+These numbers are architecture-specific! ARM64 has different numbers than x86-64.
+
+\textbf{Raw syscall example}:
+
+\begin{lstlisting}[language=C]
+// Make a write syscall directly (bypassing libc)
+#include <unistd.h>
+#include <sys/syscall.h>
+
+int main(void) {
+    const char msg[] = "Hello via raw syscall!\n";
+
+    // Direct syscall (x86-64 Linux)
+    syscall(__NR_write, 1, msg, sizeof(msg) - 1);
+
+    return 0;
+}
+\end{lstlisting}
+
+\subsection{Syscall Calling Conventions}
+
+On x86-64 Linux:
+\begin{itemize}
+    \item \textbf{Syscall number}: RAX register
+    \item \textbf{Arguments}: RDI, RSI, RDX, R10, R8, R9 (in order)
+    \item \textbf{Return value}: RAX register
+    \item \textbf{Error indication}: Return value between -4095 and -1 (negated errno)
+\end{itemize}
+
+Note the difference from function calls:
+\begin{itemize}
+    \item Function calls use RCX for 4th argument
+    \item Syscalls use R10 for 4th argument (syscall instruction clobbers RCX)
+\end{itemize}
+
+\section{Error Reporting: errno}
+
+\subsection{How errno Works}
+
+When a syscall fails, the kernel returns a negative error code. libc converts this to:
+
+\begin{enumerate}
+    \item \textbf{Return value}: -1 (for most functions)
+    \item \textbf{errno}: A global variable containing the error code
+\end{enumerate}
+
+\begin{lstlisting}[language=C]
+#include <stdio.h>
+#include <errno.h>
+#include <string.h>
+
+int main(void) {
+    FILE *f = fopen("/nonexistent/file", "r");
+
+    if (f == NULL) {
+        // errno is set by libc based on kernel error
+        printf("Error %d: %s\n", errno, strerror(errno));
+    }
+
+    return 0;
+}
+\end{lstlisting}
+
+\textbf{Important}: \texttt{errno} is thread-local! Each thread has its own copy, so multithreaded programs work correctly.
+
+\subsection{Why errno Exists}
+
+Why not just return the error code directly?
+
+\begin{enumerate}
+    \item \textbf{Historical}: Early C had limited error handling options
+    \item \textbf{Efficiency}: Negative return values can indicate valid data (e.g., \texttt{read} can legitimately return 0 for EOF)
+    \item \textbf{Detail}: errno provides more error information than just "success/failure"
+\end{enumerate}
+
+\section{Observing Syscalls with strace}
+
+\texttt{strace} is a powerful tool that traces system calls made by a program.
+
+\subsection{Basic strace Usage}
+
+Create \texttt{simple.c}:
+\begin{lstlisting}[language=C]
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+int main(void) {
+    char *s = strdup("Hello");
+    printf("%s\n", s);
+    free(s);
+    return 0;
+}
+\end{lstlisting}
+
+Compile and trace:
+\begin{lstlisting}[language=bash]
+gcc -o simple simple.c
+strace ./simple
+\end{lstlisting}
+
+Typical output (abbreviated):
+\begin{verbatim}
+execve("./simple", ["./simple"], 0x7ffc...) = 0
+brk(NULL)                               = 0x55555000
+brk(0x55556c000)                        = 0x55556c000
+mmap(NULL, 4096, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x7ffff...
+write(1, "Hello\n", 6)                  = 6
+munmap(0x7ffff..., 4096)                = 0
+exit_group(0)                           = ?
++++ exited with 0 +++
+\end{verbatim}
+
+\textbf{What to observe}:
+\begin{itemize}
+    \item \texttt{brk}/\texttt{mmap}: Memory allocation for heap
+    \item \texttt{write}: The actual I/O syscall (only one, despite printf!)
+    \item No syscall for \texttt{strlen}-like operations (they're pure user-space)
+\end{itemize}
+
+\section{Library vs. Syscall Performance}
+
+\subsection{The Cost of Syscalls}
+
+System calls are expensive compared to function calls:
+
+\begin{verbatim}
+Function call: ~1-5 nanoseconds
+System call: ~500-2000 nanoseconds
+\end{verbatim}
+
+The overhead comes from:
+\begin{enumerate}
+    \item \textbf{Mode switch}: User → kernel → user transition
+    \item \textbf{Validation}: Kernel must validate all arguments
+    \item \textbf{Scheduling}: Other processes might run while in kernel
+    \item \textbf{Cache effects}: Kernel code uses different cache lines
+\end{enumerate}
+
+\subsection{libc Buffering}
+
+libc performs buffering at several levels:
+
+\textbf{Stdio buffering (\texttt{FILE*} streams)}:
+\begin{lstlisting}[language=C]
+// Unbuffered (slow)
+setbuf(stdout, NULL);
+for (int i = 0; i < 1000; i++) {
+    printf("x");  // Syscall each iteration!
+}
+
+// Fully buffered (fast)
+setvbuf(stdout, NULL, _IOFBF, BUFSIZ);
+for (int i = 0; i < 1000; i++) {
+    printf("x");  // Buffered until:
+                 // - Buffer is full
+                 // - fflush() is called
+                 // - Program exits
+}
+\end{lstlisting}
+
+\textbf{Default buffering behavior}:
+\begin{itemize}
+    \item \textbf{stdin}: Line-buffered (when interactive) or fully buffered
+    \item \textbf{stdout}: Line-buffered (when connected to terminal) or fully buffered
+    \item \textbf{stderr}: Always unbuffered (ensure error messages appear)
+\end{itemize}
+
+\section{Key Takeaways}
+
+\begin{enumerate}
+    \item \textbf{libc vs. kernel}: Most C library functions are user-space code that may eventually trigger syscalls, but many operations (like strlen, malloc from existing heap, etc.) don't require kernel interaction.
+    \item \textbf{Syscalls are expensive}: System calls cost $\sim$500-2000 nanoseconds, much more than function calls. This is why libc buffering is so important for performance.
+    \item \textbf{Buffering matters}: libc's stdio buffering can reduce syscall count by orders of magnitude, dramatically improving performance for I/O operations.
+    \item \textbf{strace is powerful}: The strace tool reveals exactly which syscalls a program makes, invaluable for debugging and performance analysis.
+    \item \textbf{Error reporting}: The kernel returns error codes in registers; libc converts these to errno for easier error handling.
+    \item \textbf{Memory management}: malloc/free mostly manage user-space heap, only calling brk/mmap when more memory is needed from the kernel.
+    \item \textbf{User/kernel boundary}: Understanding this boundary is essential for writing efficient, portable C programs and for debugging system-level issues.
+\end{enumerate}
+
+\section{Looking Ahead}
+
+In Chapter 9, we'll explore \textbf{ABI and cross-platform compilation}—how different architectures and operating systems define binary interfaces, and what it takes to make code portable across different platforms.

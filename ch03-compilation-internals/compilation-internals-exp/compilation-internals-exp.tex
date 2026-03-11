@@ -1,46 +1,164 @@
-\begin{experiment}
-\textbf{Objective}
+\section{Experiment: Exploring Compilation Internals}
+
+\subsection{Objective}
+Observe the compiler's transformation from source code to assembly, including intermediate representations and optimization effects.
+
+\subsection{Setup Requirements}
 \begin{itemize}
-  \item Observe how optimization levels change the generated assembly.
+\item GCC compiler
+\item LLVM/Clang (optional, for LLVM IR)
+\item Linux environment
 \end{itemize}
 
-\textbf{Setup requirements}
-\begin{itemize}
-  \item gcc or clang installed.
-  \item Linux or WSL recommended.
-\end{itemize}
+\subsection{Part 1: Generating Assembly Output}
 
-\textbf{Step-by-step commands}
-\begin{enumerate}
-  \item Create a small loop-based program:
+Create a simple C file:
+
 \begin{lstlisting}[language=C]
-int sum(int *a, int n) {
-  int s = 0;
-  for (int i = 0; i < n; i++) s += a[i];
-  return s;
+// simple.c
+int add(int a, int b) {
+    return a + b;
+}
+
+int main(void) {
+    int result = add(3, 5);
+    return result;
 }
 \end{lstlisting}
-  \item Generate assembly at O0:
-\begin{lstlisting}[language=bash]
-gcc -S -O0 -o sum_O0.s sum.c
-\end{lstlisting}
-  \item Generate assembly at O2:
-\begin{lstlisting}[language=bash]
-gcc -S -O2 -o sum_O2.s sum.c
-\end{lstlisting}
-  \item Compare the two outputs.
-\end{enumerate}
 
-\textbf{Expected output explanation}
-\begin{itemize}
-  \item O0 keeps a straightforward translation with many loads and stores.
-  \item O2 may unroll, vectorize, or keep values in registers longer.
-\end{itemize}
+Generate assembly without optimization:
 
-\textbf{Questions for reader}
+\begin{lstlisting}[language=bash]
+gcc -S -O0 simple.c -o simple_O0.s
+\end{lstlisting}
+
+Generate assembly with optimization:
+
+\begin{lstlisting}[language=bash]
+gcc -S -O2 simple.c -o simple_O2.s
+gcc -S -O3 simple.c -o simple_O3.s
+\end{lstlisting}
+
+Compare the outputs:
+
+\begin{lstlisting}[language=bash]
+diff simple_O0.s simple_O2.s
+\end{lstlisting}
+
+\subsection{Part 2: Viewing GCC Intermediate Representations}
+
+Create a more complex function:
+
+\begin{lstlisting}[language=C]
+// compute.c
+int compute(int n) {
+    int sum = 0;
+    for (int i = 1; i <= n; i++) {
+        sum += i * i;
+    }
+    return sum;
+}
+\end{lstlisting}
+
+Dump GIMPLE representation:
+
+\begin{lstlisting}[language=bash]
+gcc -fdump-tree-gimple compute.c -c -o compute.o
+cat compute.c.003t.gimple
+\end{lstlisting}
+
+View all optimization passes:
+
+\begin{lstlisting}[language=bash]
+gcc -fdump-tree-all -O2 compute.c -c -o compute.o
+ls -la compute.c.*.tree
+\end{lstlisting}
+
+\subsection{Part 3: Viewing LLVM IR}
+
+Generate LLVM IR:
+
+\begin{lstlisting}[language=bash]
+clang -S -emit-llvm compute.c -o compute.ll
+cat compute.ll
+\end{lstlisting}
+
+Generate optimized IR:
+
+\begin{lstlisting}[language=bash]
+clang -S -emit-llvm -O2 compute.c -o compute_O2.ll
+diff compute.ll compute_O2.ll
+\end{lstlisting}
+
+\subsection{Part 4: Optimization Effects}
+
+Create test code:
+
+\begin{lstlisting}[language=C]
+// opt_test.c
+int dead_code(int x) {
+    int a = 10;
+    int b = 20;
+    int c = a + b;  // Dead: never used
+    return x * 2;
+}
+
+int constant_fold(void) {
+    int x = 2 + 3 * 4;
+    return x;
+}
+\end{lstlisting}
+
+Generate assembly at different optimization levels:
+
+\begin{lstlisting}[language=bash]
+gcc -S -O0 opt_test.c -o opt_O0.s
+gcc -S -O2 opt_test.c -o opt_O2.s
+\end{lstlisting}
+
+Compare dead code elimination:
+
+\begin{lstlisting}[language=bash]
+grep -A20 "dead_code:" opt_O0.s
+grep -A10 "dead_code:" opt_O2.s
+\end{lstlisting}
+
+\subsection{Part 5: Inlining Analysis}
+
+Create test file:
+
+\begin{lstlisting}[language=C]
+// inline_test.c
+static int square(int x) {
+    return x * x;
+}
+
+int calculate(int n) {
+    return square(n) + square(n + 1);
+}
+\end{lstlisting}
+
+Examine with and without inlining:
+
+\begin{lstlisting}[language=bash]
+gcc -S -O0 -fno-inline inline_test.c -o inline_no.s
+gcc -S -O2 inline_test.c -o inline_yes.s
+\end{lstlisting}
+
+\subsection{Questions for Reader}
+
 \begin{enumerate}
-  \item Which instructions disappear at O2 and why?
-  \item How does register allocation differ between the outputs?
-  \item What optimizations would be risky for debugging?
+\item What differences do you observe between \texttt{-O0} and \texttt{-O2} for the \texttt{add} function?
+\item In the SSA dump, look for phi functions. Where do they appear and what do they represent?
+\item How much code was eliminated from \texttt{dead\_code} at \texttt{-O2}?
+\item Compare the loop in \texttt{loop\_optimize} at different optimization levels. What transformations do you see?
+\item What are the advantages and disadvantages of function inlining?
 \end{enumerate}
-\end{experiment}
+
+\subsection{Further Exploration}
+\begin{itemize}
+\item Explore GCC's \texttt{-fverbose-asm} flag for annotated assembly
+\item Use \texttt{-fopt-info} to see what optimizations the compiler applies
+\item Compare GCC and Clang optimization strategies
+\item Study the \texttt{-march=native} flag for CPU-specific optimizations
+\end{itemize}

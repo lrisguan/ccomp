@@ -1,5 +1,6 @@
 # dir
 .github/
+dist/
 
 # file
 *.py

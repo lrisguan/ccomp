@@ -1,33 +1,317 @@
 \chapter{Process Loading and Memory Layout}
 
-\section{Purpose}
-Describe how the OS loads an executable and maps it into virtual memory.
+\section{Introduction}
 
-\section{Outline}
+When you type \texttt{./myprogram} and press enter, what actually happens? How does a simple executable file on disk become a running process with memory, stack, and heap? This chapter explores the final piece of the compilation story: \textbf{process loading} and \textbf{memory layout}.
+
+We've seen how source code becomes an executable file. Now we'll see how that executable file is brought to life by the operating system's loader. We'll examine:
+\begin{itemize}
+    \item \textbf{The loader}: How the OS reads and maps executable files
+    \item \textbf{Virtual memory}: How each process gets its own address space
+    \item \textbf{Memory segments}: text, data, bss, heap, stack, and more
+    \item \textbf{Dynamic linking}: How shared libraries are loaded at runtime
+    \item \textbf{Memory mapping}: How \texttt{mmap} enables efficient file I/O and memory allocation
+\end{itemize}
+
+Understanding process loading is crucial for:
+\begin{itemize}
+    \item \textbf{Debugging}: Understanding segmentation faults, memory errors
+    \item \textbf{Performance}: Optimizing memory usage and allocation strategies
+    \item \textbf{Security}: Understanding ASLR, stack protection, and memory isolation
+    \item \textbf{Systems programming}: Writing low-level code that interacts with the OS
+\end{itemize}
+
+\section{From Executable to Process}
+
+\subsection{What is a Process?}
+
+A \textbf{process} is an instance of a program in execution. Unlike a program (static file on disk), a process is dynamic:
+
+\begin{verbatim}
+Program (File on Disk)          Process (Running Instance)
+├── Code sections              ├── Memory regions
+├── Data sections              ├── Stack
+├── Metadata (headers, etc.)   ├── Heap
+└── ...                        ├── Program counter
+                               ├── Open files
+                               └── ...
+\end{verbatim}
+
+\textbf{Key differences}:
+\begin{itemize}
+    \item \textbf{Program}: Static, passive, stored on disk
+    \item \textbf{Process}: Dynamic, active, lives in memory
+\end{itemize}
+
+\subsection{The Loading Process}
+
+When you run a program, the OS performs these steps:
+
+\begin{verbatim}
+1. User executes: ./myprogram
+         │
+         ▼
+2. Shell calls fork() + execve()
+         │
+         ▼
+3. Kernel's execve() handler:
+   a. Read ELF header from file
+   b. Verify it's a valid executable
+   c. Create new memory map for process
+   d. Read program headers (PHDRs)
+   e. Map segments into memory (mmap)
+   f. Set up stack and arguments
+   g. Set up dynamic linker (if needed)
+   h. Jump to entry point (_start)
+         │
+         ▼
+4. _start (in libc/crt0):
+   a. Initialize libc
+   b. Run constructors (.init_array)
+   c. Call main()
+   │
+   ▼
+5. Your program runs!
+   │
+   ▼
+6. After main() returns:
+   a. Run destructors (.fini_array)
+   b. Call exit()
+   │
+   ▼
+7. Kernel cleans up process
+\end{verbatim}
+
+\section{Virtual Memory}
+
+\subsection{What is Virtual Memory?}
+
+\textbf{Virtual memory} gives each process the illusion of having its own private, contiguous address space. In reality, physical memory is fragmented and shared among all processes.
+
+\textbf{With virtual memory}:
+\begin{itemize}
+    \item Each process has its own address space (0 to $2^{64}-1$ on 64-bit)
+    \item The Memory Management Unit (MMU) translates virtual $\rightarrow$ physical addresses
+    \item Processes are isolated from each other
+    \item Pages can be moved, swapped, or shared transparently
+\end{itemize}
+
+\textbf{Translation process}:
+\begin{verbatim}
+Virtual Address (seen by program)
+        │
+        ▼
+MMU (Memory Management Unit)
+        │
+        ├──► Page Table Lookup
+        │
+        ▼
+Physical Address (actual RAM location)
+\end{verbatim}
+
+\subsection{Benefits of Virtual Memory}
+
 \begin{enumerate}
-  \item Loader responsibilities
-  \item Virtual memory fundamentals
-  \item Text, data, heap, stack layout
-  \item Dynamic linker loading
-  \item mmap and shared libraries
+    \item \textbf{Isolation}: Processes can't access each other's memory
+    \item \textbf{Protection}: Pages can be marked read-only, execute-only, etc.
+    \item \textbf{Efficiency}: Only loaded portions of a program need to be in RAM
+    \item \textbf{Simplicity}: Each program can use the same address range
+    \item \textbf{Sharing}: Multiple processes can share the same physical page (for libraries)
 \end{enumerate}
 
-\section{Content Plan}
+\section{Memory Segments}
+
+\subsection{Typical Process Memory Layout}
+
+A typical process memory layout on x86-64 Linux:
+
+\begin{verbatim}
+High Addresses (0xFFFFFFFFFFFFFFFF)
+     ┌─────────────────────────────┐
+     │      Kernel Space           │  (Not accessible to user)
+     ├─────────────────────────────┤ 0x7FFFFFFFF000
+     │                             │
+     │      Stack                  │  Grows downward
+     │      ┌─────────────┐        │
+     │      │  stack var  │        │
+     │      ├─────────────┤        │
+     │      │     ...     │        │
+     │      └─────────────┘        │
+     │                             │
+     ├─────────────────────────────┤ ← RSP (stack pointer)
+     │                             │
+     │          ↓                  │  Free memory
+     │                             │
+     │          ↑                  │
+     │                             │
+     ├─────────────────────────────┤
+     │      Memory Mapping Segment │  Libraries, mmap regions
+     │      ┌─────────────┐        │
+     │      │   shared lib│        │
+     │      ├─────────────┤        │
+     │      │     ...     │        │
+     │      └─────────────┘        │
+     ├─────────────────────────────┤
+     │      Heap                   │  Grows upward (via brk/mmap)
+     │      ┌─────────────┐        │
+     │      │  malloc'd   │        │
+     │      ├─────────────┤        │
+     │      │     ...     │        │
+     │      └─────────────┘        │
+     │                             │
+     ├─────────────────────────────┤ ← Program break (brk)
+     │      .bss                   │  Uninitialized data
+     │      (0-filled at load)     │
+     ├─────────────────────────────┤
+     │      .data                  │  Initialized data
+     │      (global vars, etc.)    │
+     ├─────────────────────────────┤
+     │      .rodata                │  Read-only data (strings, etc.)
+     ├─────────────────────────────┤
+     │      .text                  │  Code (executable)
+     │      (machine instructions) │
+     └─────────────────────────────┘
+Low Addresses (0x0000000000000000)
+\end{verbatim}
+
+\subsection{The .text Segment}
+
+Contains executable code (machine instructions).
+
+\textbf{Properties}:
 \begin{itemize}
-  \item Loader reads program headers and maps segments.
-  \item Virtual memory pages, permissions, and ASLR.
-  \item Typical process layout and growth directions.
-  \item Dynamic linker responsibilities during startup.
-  \item mmap usage for shared objects and anonymous memory.
+    \item \textbf{Read-only}: Code cannot modify itself
+    \item \textbf{Executable}: CPU can fetch and execute instructions
+    \item \textbf{Shared}: Multiple instances of the same program can share this segment
 \end{itemize}
 
-\section{Key Terms}
+\subsection{The .data Segment}
+
+Contains \textbf{initialized} global and static variables.
+
+\textbf{Properties}:
 \begin{itemize}
-  \item virtual memory
-  \item program header
-  \item dynamic linker
-  \item mmap
+    \item \textbf{Read-write}: Variables can be modified
+    \item \textbf{Initialized}: Contains initial values from executable
+    \item \textbf{Fixed size}: Size known at compile time
 \end{itemize}
 
-\section{Experiment}
-See process-loading-and-memory-layout-exp/process-loading-and-memory-layout-exp.tex in this chapter.
+\subsection{The .bss Segment}
+
+Contains \textbf{uninitialized} global and static variables.
+
+\textbf{Properties}:
+\begin{itemize}
+    \item \textbf{Read-write}: Variables can be modified
+    \item \textbf{Zero-initialized}: Set to 0 at process start
+    \item \textbf{Not stored in executable}: Only size is recorded, not data
+\end{itemize}
+
+\textbf{Why separate .bss from .data?}
+
+Efficiency! .bss doesn't take up space in the executable file:
+
+\begin{verbatim}
+.data in file:
+[initial values for 100 bytes] → 100 bytes in executable
+
+.bss in file:
+[size: 1000, zero at load] → 8 bytes in executable (just the size!)
+\end{verbatim}
+
+The loader allocates .bss memory and zeros it at runtime.
+
+\subsection{The Heap}
+
+Dynamic memory allocation region managed by \texttt{malloc}/\texttt{free}.
+
+\textbf{Growth direction}: Upward (toward higher addresses)
+
+\textbf{Management}:
+\begin{itemize}
+    \item libc's heap allocator (ptmalloc, jemalloc, etc.) manages this region
+    \item Requests more memory from kernel via \texttt{brk()} or \texttt{mmap()} when needed
+    \item Carves large regions into small allocations for your program
+\end{itemize}
+
+\subsection{The Stack}
+
+Function call region for local variables, return addresses, saved registers.
+
+\textbf{Growth direction}: Downward (toward lower addresses)
+
+\textbf{Stack overflow}: Exceeding stack size causes segmentation fault
+
+\section{The Loader in Detail}
+
+\subsection{Program Headers}
+
+ELF executables contain \textbf{program headers} that tell the loader how to load the file.
+
+\textbf{Key program headers}:
+\begin{itemize}
+    \item \textbf{PHDR}: Program header table itself
+    \item \textbf{INTERP}: Specifies dynamic linker (ld-linux.so)
+    \item \textbf{LOAD}: Loadable segment (code or data)
+    \item \textbf{DYNAMIC}: Dynamic linking information
+    \item \textbf{GNU\_STACK}: Stack permissions (executable? non-executable?)
+\end{itemize}
+
+\subsection{The Dynamic Linker}
+
+For dynamically linked executables, the \textbf{dynamic linker} (\texttt{ld-linux.so}) performs final setup:
+
+\textbf{What it does}:
+\begin{enumerate}
+    \item Load required shared libraries (libc.so, etc.)
+    \item Resolve symbol references (PLT/GOT, as seen in Chapter 7)
+    \item Run relocations
+    \item Call shared library initializers
+    \item Transfer control to the program
+\end{enumerate}
+
+\subsection{ASLR: Address Space Layout Randomization}
+
+Modern systems use \textbf{ASLR} to randomize memory locations for security:
+
+\textbf{Without ASLR} (old systems):
+\begin{verbatim}
+Stack always at 0x7ffffff00000
+Heap always starts at 0x02000000
+Libraries always loaded at same addresses
+→ Predictable = easier to exploit!
+\end{verbatim}
+
+\textbf{With ASLR} (modern systems):
+\begin{verbatim}
+Stack at random location each run
+Heap starts at random location
+Libraries loaded at random addresses
+→ Unpredictable = harder to exploit!
+\end{verbatim}
+
+\section{Key Takeaways}
+
+\begin{enumerate}
+    \item \textbf{Loading transforms executables into processes}: The OS loader reads the ELF file, maps segments into memory, and transfers control to the entry point.
+    \item \textbf{Virtual memory isolates processes}: Each process has its own address space, translated to physical memory by the MMU via page tables.
+    \item \textbf{Memory is organized into segments}: .text (code), .rodata (read-only data), .data (initialized data), .bss (uninitialized data), heap, and stack.
+    \item \textbf{The stack grows downward, heap grows upward}: Local variables and function frames are on the stack; dynamic allocations are on the heap.
+    \item \textbf{The loader uses program headers}: ELF program headers specify which segments to load, their permissions, and their virtual addresses.
+    \item \textbf{Dynamic linking happens at load time}: The dynamic linker loads shared libraries, resolves symbols, and performs relocations before your code runs.
+    \item \textbf{ASLR randomizes memory layout}: For security, ASLR randomizes stack, heap, and library locations to make exploitation harder.
+\end{enumerate}
+
+\section{Looking Ahead}
+
+This completes our journey from C source code to running process! We've seen:
+\begin{itemize}
+    \item \textbf{Chapter 1-2}: Compilation pipeline and preprocessing
+    \item \textbf{Chapter 3-4}: Compilation internals and object files
+    \item \textbf{Chapter 5-6}: ELF format and linking
+    \item \textbf{Chapter 7-8}: Static/dynamic libraries and system calls
+    \item \textbf{Chapter 9}: ABI and cross-platform compilation
+    \item \textbf{Chapter 10}: Process loading and memory layout
+\end{itemize}
+
+You now understand the complete path from source code to executing process, with deep knowledge of each step along the way.

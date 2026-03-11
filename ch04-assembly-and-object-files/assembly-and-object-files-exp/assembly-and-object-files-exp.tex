@@ -1,46 +1,175 @@
-\begin{experiment}
-\textbf{Objective}
+\section{Experiment: Assembly and Object Files}
+
+\subsection{Objective}
+Explore assembly language and object file structure through hands-on exercises.
+
+\subsection{Setup Requirements}
 \begin{itemize}
-  \item Use objdump and nm to examine sections and symbols in a relocatable object.
+\item GCC assembler and linker
+\item binutils (objdump, readelf, nm)
+\item Linux environment
 \end{itemize}
 
-\textbf{Setup requirements}
-\begin{itemize}
-  \item gcc or clang installed.
-  \item binutils tools (objdump, nm).
-\end{itemize}
+\subsection{Part 1: Generating and Viewing Assembly}
 
-\textbf{Step-by-step commands}
+Create a simple C program:
+
+\begin{lstlisting}[language=C]
+// hello.c
+#include <stdio.h>
+
+int global_var = 42;
+static int static_var = 10;
+
+int add(int a, int b) {
+    return a + b;
+}
+
+int main(void) {
+    int local = add(global_var, static_var);
+    printf("Result: %d\n", local);
+    return 0;
+}
+\end{lstlisting}
+
+Generate assembly with C intermixing:
+
+\begin{lstlisting}[language=bash]
+gcc -S -fverbose-asm -g hello.c -o hello.s
+less hello.s
+\end{lstlisting}
+
+Compare AT\&T vs Intel syntax:
+
+\begin{lstlisting}[language=bash]
+gcc -S hello.c -o hello_att.s
+gcc -S -masm=intel hello.c -o hello_intel.s
+diff hello_att.s hello_intel.s | head -30
+\end{lstlisting}
+
+\subsection{Part 2: Assembling by Hand}
+
+Create assembly directly:
+
+\begin{lstlisting}[language=]
+# hand_coded.s
+.section .data
+message: .asciz "Hello from assembly!\n"
+
+.section .text
+.globl _start
+_start:
+    movq $1, %rax
+    movq $1, %rdi
+    leaq message(%rip), %rsi
+    movq $22, %rdx
+    syscall
+    movq $60, %rax
+    xorq %rdi, %rdi
+    syscall
+\end{lstlisting}
+
+Assemble and link:
+
+\begin{lstlisting}[language=bash]
+as hand_coded.s -o hand_coded.o
+ld hand_coded.o -o hand_coded
+./hand_coded
+\end{lstlisting}
+
+\subsection{Part 3: Object File Examination}
+
+Compile to object file:
+
+\begin{lstlisting}[language=bash]
+gcc -c hello.c -o hello.o
+objdump -h hello.o
+readelf -S hello.o
+nm hello.o
+objdump -d hello.o
+\end{lstlisting}
+
+\subsection{Part 4: Understanding Symbols}
+
+Create a file with various symbol types:
+
+\begin{lstlisting}[language=C]
+// symbols.c
+int global_init = 10;        // .data, global
+int global_uninit;           // .bss, global
+static int static_init = 20; // .data, local
+const int const_var = 30;    // .rodata, local
+
+void public_func(void) { }   // .text, global
+static void private_func(void) { }  // .text, local
+\end{lstlisting}
+
+Compile and examine symbols:
+
+\begin{lstlisting}[language=bash]
+gcc -c symbols.c -o symbols.o
+nm symbols.o
+\end{lstlisting}
+
+\subsection{Part 5: Relocations}
+
+Create a file with external references:
+
+\begin{lstlisting}[language=C]
+// relocs.c
+extern int external_var;
+extern void external_func(void);
+
+int get_external(void) {
+    return external_var;
+}
+
+void call_external(void) {
+    external_func();
+}
+\end{lstlisting}
+
+View relocations:
+
+\begin{lstlisting}[language=bash]
+gcc -c relocs.c -o relocs.o
+readelf -r relocs.o
+objdump -r -d relocs.o
+\end{lstlisting}
+
+\subsection{Part 6: Building a Static Library}
+
+Create source files:
+
+\begin{lstlisting}[language=C]
+// math_ops.c
+int add(int a, int b) { return a + b; }
+int subtract(int a, int b) { return a - b; }
+\end{lstlisting}
+
+Compile and create static library:
+
+\begin{lstlisting}[language=bash]
+gcc -c math_ops.c -o math_ops.o
+ar rcs libmylib.a math_ops.o
+ar -t libmylib.a
+nm libmylib.a
+\end{lstlisting}
+
+\subsection{Questions for Reader}
+
 \begin{enumerate}
-  \item Build an object file:
-\begin{lstlisting}[language=bash]
-gcc -c -o demo.o demo.c
-\end{lstlisting}
-  \item List sections:
-\begin{lstlisting}[language=bash]
-objdump -h demo.o
-\end{lstlisting}
-  \item Disassemble code:
-\begin{lstlisting}[language=bash]
-objdump -d demo.o
-\end{lstlisting}
-  \item Display symbols:
-\begin{lstlisting}[language=bash]
-nm -C demo.o
-\end{lstlisting}
+\item What are the key differences between AT\&T and Intel assembly syntax?
+\item What do the letters T, D, B, U mean in nm output?
+\item Why does the object file contain relocation entries for external symbols?
+\item Why is \texttt{const\_var} placed in \texttt{.rodata} instead of \texttt{.data}?
+\item How much smaller did the executable become after stripping?
 \end{enumerate}
 
-\textbf{Expected output explanation}
+\subsection{Further Exploration}
 \begin{itemize}
-  \item Section headers show size, VMA, and flags.
-  \item Disassembly uses section-relative addresses.
-  \item Symbol output lists global, local, and undefined symbols.
+\item Write assembly functions that call C functions and vice versa
+\item Explore the \texttt{-fno-stack-protector} and \texttt{-fno-pie} flags
+\item Use \texttt{objcopy} to extract or modify specific sections
+\item Create and use custom linker scripts
 \end{itemize}
-
-\textbf{Questions for reader}
-\begin{enumerate}
-  \item Which symbols are undefined and why?
-  \item How do .bss and .data differ in size and type?
-  \item Which sections would the linker discard or merge?
-\end{enumerate}
-\end{experiment}

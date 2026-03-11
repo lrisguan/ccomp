@@ -1,34 +1,842 @@
 \chapter{Preprocessing}
 
-\section{Purpose}
-Explain preprocessing as a textual substitution stage that builds compilation units.
+\section{Introduction}
 
-\section{Outline}
+Before a C compiler sees your source code, it passes through the \textbf{preprocessor}---a powerful text transformation engine that manipulates your code at the character level. The preprocessor doesn't understand C syntax; it simply performs textual substitutions, file inclusions, and conditional deletions.
+
+Understanding preprocessing is essential because:
+\begin{itemize}
+    \item It's where macros, includes, and conditionals are handled
+    \item Errors in preprocessing can produce baffling compiler errors
+    \item The preprocessor determines what the compiler actually sees
+    \item Many build configurations rely on preprocessor conditionals
+\end{itemize}
+
+In this chapter, we'll explore every aspect of the C preprocessor, from simple macros to complex conditional compilation, with hands-on examples you can try yourself.
+
+\section{What is the Preprocessor?}
+
+The C preprocessor (often abbreviated as CPP) is a separate program that processes your source code before the compiler proper. On most systems, it's invoked automatically by the compiler driver (like \texttt{gcc}), but you can also run it standalone:
+
+\begin{lstlisting}[language=bash]
+# Run preprocessor only, output to stdout
+gcc -E source.c
+
+# Run preprocessor only, output to file
+gcc -E source.c -o source.i
+\end{lstlisting}
+
+The preprocessor operates on \textbf{translation units}---essentially, what the compiler processes as a single entity. The output of the preprocessor is a single, expanded text stream that the compiler then parses.
+
+\subsection{Preprocessing as Text Transformation}
+
+The preprocessor performs three main operations:
+
 \begin{enumerate}
-  \item Macro expansion model
-  \item Include mechanism
-  \item Conditional compilation
-  \item Header guards
-  \item Compilation units and translation units
+    \item \textbf{Macro expansion}: Replace defined symbols with their definitions
+    \item \textbf{File inclusion}: Insert the contents of other files
+    \item \textbf{Conditional compilation}: Include or exclude code based on conditions
 \end{enumerate}
 
-\section{Content Plan}
+All of these are pure text operations. The preprocessor doesn't know about C syntax, types, or scope. It just manipulates text.
+
+\begin{verbatim}
+┌─────────────────────────────────────────────────────────────┐
+│              The Preprocessing Pipeline                     │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│   source.c ──┐                                              │
+│              │    ┌─────────────┐    ┌─────────────┐        │
+│   header.h ──┼───▶│ Preprocessor│───▶│ source.i    │        │
+│              │    │   (cpp)     │    │ (expanded)  │        │
+│   config.h ──┘    └─────────────┘    └─────────────┘        │
+│                         │                                   │
+│                    Text transformations:                    │
+│                    - #include → file contents               │
+│                    - #define → substitutions                │
+│                    - #if/#ifdef → conditional code          │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+\end{verbatim}
+
+\section{Macro Expansion}
+
+\subsection{Object-Like Macros}
+
+The simplest macros are object-like---they replace a name with a token sequence:
+
+\begin{lstlisting}[language=C]
+#define PI 3.14159
+#define MAX_SIZE 1024
+#define DEBUG 1
+
+int main(void) {
+    double area = PI * radius * radius;
+    int buffer[MAX_SIZE];
+    if (DEBUG) {
+        printf("Debug mode enabled\n");
+    }
+    return 0;
+}
+\end{lstlisting}
+
+After preprocessing, this becomes:
+
+\begin{lstlisting}[language=C]
+int main(void) {
+    double area = 3.14159 * radius * radius;
+    int buffer[1024];
+    if (1) {
+        printf("Debug mode enabled\n");
+    }
+    return 0;
+}
+\end{lstlisting}
+
+\begin{tip}
+Use UPPERCASE names for macros to distinguish them from variables. This is a convention, not a requirement, but it helps readers identify macros at a glance.
+\end{tip}
+
+\subsection{Function-Like Macros}
+
+Macros can take arguments, making them look like functions:
+
+\begin{lstlisting}[language=C]
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+#define SQUARE(x) ((x) * (x))
+#define ABS(x) ((x) < 0 ? -(x) : (x))
+
+int main(void) {
+    int m = MAX(3, 5);          // Expands to: ((3) > (5) ? (3) : (5))
+    int sq = SQUARE(4);          // Expands to: ((4) * (4))
+    int av = ABS(-10);           // Expands to: ((-10) < 0 ? -(-10) : (-10))
+    return 0;
+}
+\end{lstlisting}
+
+\begin{warning}
+\textbf{Critical Warning}: Always parenthesize macro arguments! Without parentheses, operator precedence can cause unexpected behavior:
+
+\begin{lstlisting}[language=C]
+#define BAD_SQUARE(x) x * x
+int result = BAD_SQUARE(1 + 2);  // Expands to: 1 + 2 * 1 + 2 = 5, not 9!
+\end{lstlisting}
+\end{warning}
+
+\subsection{Macro Pitfall: Multiple Evaluation}
+
+Function-like macros can evaluate arguments multiple times:
+
+\begin{lstlisting}[language=C]
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+
+int x = 5;
+int m = MAX(x++, 3);  // Problem: x might be incremented once or twice!
+\end{lstlisting}
+
+After expansion:
+\begin{lstlisting}[language=C]
+int m = ((x++) > (3) ? (x++) : (3));
+\end{lstlisting}
+
+If \texttt{x} is 5, then \texttt{x++} (which returns 5) is compared to 3. Since 5 > 3 is true, the result is \texttt{x++} again---but now \texttt{x} is 6, so this returns 6. \texttt{x} ends up as 7, and \texttt{m} is 6.
+
+\textbf{Solution}: Use inline functions when possible, or be very careful with macro arguments that have side effects:
+
+\begin{lstlisting}[language=C]
+// Prefer inline functions for type safety and single evaluation
+static inline int max(int a, int b) {
+    return a > b ? a : b;
+}
+\end{lstlisting}
+
+\subsection{Multi-Line Macros}
+
+For longer macros, use backslash continuation:
+
+\begin{lstlisting}[language=C]
+#define SWAP(a, b, type) do { \
+    type temp = a; \
+    a = b; \
+    b = temp; \
+} while (0)
+
+int main(void) {
+    int x = 1, y = 2;
+    SWAP(x, y, int);  // x = 2, y = 1
+    return 0;
+}
+\end{lstlisting}
+
+\begin{tip}
+\textbf{Why the \texttt{do \{ ... \} while (0)}?} This idiom allows the macro to be used like a statement with a semicolon, without breaking if-else chains:
+
+\begin{lstlisting}[language=C]
+if (condition)
+    SWAP(a, b, int);  // Works correctly
+else
+    do_something();
+\end{lstlisting}
+\end{tip}
+
+\subsection{Stringification (\#)}
+
+The \texttt{\#} operator converts a macro argument to a string:
+
+\begin{lstlisting}[language=C]
+#define STRINGIFY(x) #x
+#define TOSTRING(x) STRINGIFY(x)
+
+#define VALUE 42
+
+const char* s1 = STRINGIFY(VALUE);   // s1 = "VALUE"
+const char* s2 = TOSTRING(VALUE);    // s2 = "42"
+\end{lstlisting}
+
+The difference: \texttt{STRINGIFY} stringifies the argument literally, while \texttt{TOSTRING} first expands the argument, then stringifies it.
+
+\subsection{Token Pasting (\#\#)}
+
+The \texttt{\#\#} operator concatenates tokens:
+
+\begin{lstlisting}[language=C]
+#define CONCAT(a, b) a ## b
+#define MAKE_VAR(name, num) int name ## _ ## num
+
+int main(void) {
+    int CONCAT(var, 1) = 10;        // Creates variable var1
+    MAKE_VAR(item, 5) = 20;          // Creates variable item_5
+    return 0;
+}
+\end{lstlisting}
+
+This is commonly used for generating names programmatically:
+
+\begin{lstlisting}[language=C]
+#define DEFINE_HANDLER(num) void handler_##num(void) { \
+    printf("Handler %d called\n", num); \
+}
+
+DEFINE_HANDLER(1)  // Creates handler_1
+DEFINE_HANDLER(2)  // Creates handler_2
+DEFINE_HANDLER(3)  // Creates handler_3
+\end{lstlisting}
+
+\subsection{Variadic Macros}
+
+Macros can accept variable numbers of arguments using \texttt{...} and \texttt{\_\_VA\_ARGS\_\_}:
+
+\begin{lstlisting}[language=C]
+#define DEBUG_PRINT(fmt, ...) \
+    fprintf(stderr, "[DEBUG] " fmt "\n", __VA_ARGS__)
+
+#define LOG(level, msg, ...) \
+    printf("[%s] " msg "\n", level, __VA_ARGS__)
+
+int main(void) {
+    DEBUG_PRINT("Value: %d, Status: %s", 42, "OK");
+    LOG("INFO", "User %s logged in", "alice");
+    return 0;
+}
+\end{lstlisting}
+
+For C99 compatibility with zero variadic arguments, use \texttt{\#\_\_VA\_ARGS\_\_} (GCC extension, now standard in C++20):
+
+\begin{lstlisting}[language=C]
+#define DEBUG_PRINT(fmt, ...) \
+    fprintf(stderr, "[DEBUG] " fmt "\n", ##__VA_ARGS__)
+
+DEBUG_PRINT("Simple message");  // Works even with no extra args
+\end{lstlisting}
+
+\section{File Inclusion}
+
+\subsection{\#include Basics}
+
+The \texttt{\#include} directive inserts the contents of another file:
+
+\begin{lstlisting}[language=C]
+#include <stdio.h>      // System header (angle brackets)
+#include "myheader.h"   // Local header (double quotes)
+\end{lstlisting}
+
+The difference between \texttt{<...>} and \texttt{"..."} is the search path:
+
+\begin{tabular}{|l|p{10cm}|}
+\hline
+\textbf{Syntax} & \textbf{Search Order} \\
+\hline
+\texttt{<header.h>} & System include paths only \\
+\hline
+\texttt{"header.h"} & Current directory first, then system include paths \\
+\hline
+\end{tabular}
+
+\subsection{Include Search Paths}
+
+The preprocessor searches for headers in specific directories:
+
+\begin{lstlisting}[language=bash]
+# View default include paths
+gcc -E -x c - -v < /dev/null 2>&1 | grep "^ "
+
+# Add custom include paths
+gcc -I/path/to/includes -I../another/path source.c
+\end{lstlisting}
+
+Common system include paths on Linux:
 \begin{itemize}
-  \item Treat preprocessing as a deterministic text transformation.
-  \item Macro expansion order, function-like macros, and pitfalls.
-  \item Include search paths and include graphs.
-  \item Conditional blocks and feature toggles.
-  \item Header guards and include once behavior.
-  \item How preprocessing defines a compilation unit boundary.
+    \item \texttt{/usr/include}
+    \item \texttt{/usr/local/include}
+    \item \texttt{/usr/lib/gcc/x86\_64-linux-gnu/11/include} (compiler-specific)
 \end{itemize}
 
-\section{Key Terms}
+\subsection{The Include Graph}
+
+With nested includes, you can build complex dependency graphs:
+
+\begin{verbatim}
+source.c
+├── <stdio.h>
+│   ├── <bits/libc-header-start.h>
+│   ├── <features.h>
+│   │   ├── <stdc-predef.h>
+│   │   └── <sys/cdefs.h>
+│   └── <bits/types.h>
+├── "config.h"
+│   └── <stdint.h>
+└── "utils.h"
+    └── <stdlib.h>
+\end{verbatim}
+
+To see the include graph:
+
+\begin{lstlisting}[language=bash]
+# Show included files
+gcc -E source.c -H
+
+# Output example:
+# . /usr/include/stdio.h
+# .. /usr/include/bits/libc-header-start.h
+# .. /usr/include/features.h
+\end{lstlisting}
+
+\subsection{Include Guards and \#pragma once}
+
+Without protection, a header included twice causes errors:
+
+\begin{lstlisting}[language=C]
+// header.h
+struct Point { int x, y; };
+
+// source.c
+#include "header.h"
+#include "header.h"  // Error: redefinition of 'struct Point'!
+\end{lstlisting}
+
+\textbf{Solution 1: Include Guards (Traditional)}
+
+\begin{lstlisting}[language=C]
+#ifndef HEADER_H
+#define HEADER_H
+
+struct Point { int x, y; };
+
+#endif /* HEADER_H */
+\end{lstlisting}
+
+The first inclusion defines \texttt{HEADER\_H}. Subsequent inclusions see the guard and skip the content.
+
+\textbf{Solution 2: \#pragma once (Modern)}
+
+\begin{lstlisting}[language=C]
+#pragma once
+
+struct Point { int x, y; };
+\end{lstlisting}
+
+\texttt{\#pragma once} tells the preprocessor to include this file at most once per compilation unit. It's simpler and often faster, but technically non-standard (though supported by all major compilers).
+
+\begin{recommendation}
+Use \texttt{\#pragma once} for new code. It's cleaner and less error-prone. Use include guards if you need strict C standard compliance.
+\end{recommendation}
+
+\section{Conditional Compilation}
+
+Conditional compilation lets you include or exclude code based on conditions evaluated during preprocessing.
+
+\subsection{\#if, \#elif, \#else, \#endif}
+
+\begin{lstlisting}[language=C]
+#define VERSION 3
+
+#if VERSION == 1
+    #define FEATURE_NAME "Basic"
+#elif VERSION == 2
+    #define FEATURE_NAME "Standard"
+#elif VERSION == 3
+    #define FEATURE_NAME "Premium"
+#else
+    #define FEATURE_NAME "Unknown"
+#endif
+\end{lstlisting}
+
+\subsection{\#ifdef and \#ifndef}
+
+Test whether a macro is defined:
+
+\begin{lstlisting}[language=C]
+#ifdef DEBUG
+    printf("Debug mode enabled\n");
+#endif
+
+#ifndef BUFFER_SIZE
+    #define BUFFER_SIZE 1024  // Default value
+#endif
+\end{lstlisting}
+
+These are equivalent to:
+
+\begin{lstlisting}[language=C]
+#if defined(DEBUG)
+#if !defined(BUFFER_SIZE)
+\end{lstlisting}
+
+\subsection{defined() Operator}
+
+The \texttt{defined()} operator checks if a macro exists:
+
+\begin{lstlisting}[language=C]
+#if defined(DEBUG) && defined(VERBOSE)
+    #define LOG_LEVEL 3
+#elif defined(DEBUG)
+    #define LOG_LEVEL 2
+#else
+    #define LOG_LEVEL 1
+#endif
+\end{lstlisting}
+
+\subsection{Common Use Cases}
+
+\textbf{Platform Detection:}
+
+\begin{lstlisting}[language=C]
+#ifdef _WIN32
+    #define PATH_SEPARATOR '\\'
+    #include <windows.h>
+#elif defined(__linux__)
+    #define PATH_SEPARATOR '/'
+    #include <unistd.h>
+#elif defined(__APPLE__)
+    #define PATH_SEPARATOR '/'
+    #include <mach-o/dyld.h>
+#endif
+\end{lstlisting}
+
+\textbf{Debug vs. Release:}
+
+\begin{lstlisting}[language=C]
+#ifdef NDEBUG
+    #define ASSERT(cond) ((void)0)
+#else
+    #define ASSERT(cond) \
+        do { \
+            if (!(cond)) { \
+                fprintf(stderr, "Assertion failed: %s, %s:%d\n", \
+                        #cond, __FILE__, __LINE__); \
+                abort(); \
+            } \
+        } while (0)
+#endif
+\end{lstlisting}
+
+\textbf{Feature Flags:}
+
+\begin{lstlisting}[language=C]
+// Compile with: gcc -DUSE_OPENCL source.c
+#ifdef USE_OPENCL
+    void compute(void) { /* OpenCL implementation */ }
+#elif defined(USE_CUDA)
+    void compute(void) { /* CUDA implementation */ }
+#else
+    void compute(void) { /* CPU fallback */ }
+#endif
+\end{lstlisting}
+
+\textbf{Header Inclusion Control:}
+
+\begin{lstlisting}[language=C]
+// Disable assert.h assertions
+#define NDEBUG
+#include <assert.h>
+\end{lstlisting}
+
+\section{Predefined Macros}
+
+The C standard and compilers provide predefined macros:
+
+\subsection{Standard Predefined Macros}
+
+\begin{tabular}{|l|l|p{8cm}|}
+\hline
+\textbf{Macro} & \textbf{Description} & \textbf{Example Value} \\
+\hline
+\texttt{\_\_FILE\_\_} & Current source file name & \texttt{"source.c"} \\
+\hline
+\texttt{\_\_LINE\_\_} & Current line number & \texttt{42} \\
+\hline
+\texttt{\_\_func\_\_} & Current function name (C99) & \texttt{"main"} \\
+\hline
+\texttt{\_\_DATE\_\_} & Compilation date & \texttt{"Mar 11 2026"} \\
+\hline
+\texttt{\_\_TIME\_\_} & Compilation time & \texttt{"16:30:00"} \\
+\hline
+\texttt{\_\_STDC\_\_} & 1 if compiler conforms to C standard & \texttt{1} \\
+\hline
+\texttt{\_\_STDC\_VERSION\_\_} & C standard version (as long) & \texttt{201710L} (C17) \\
+\hline
+\end{tabular}
+
+\subsection{Compiler-Specific Macros}
+
+\textbf{GCC:}
+\begin{lstlisting}[language=C]
+#ifdef __GNUC__
+    #define GCC_VERSION (__GNUC__ * 10000 + __GNUC_MINOR__ * 100 + __GNUC_PATCHLEVEL__)
+    #if GCC_VERSION >= 90100
+        // GCC 9.1+ specific code
+    #endif
+#endif
+\end{lstlisting}
+
+\textbf{Clang:}
+\begin{lstlisting}[language=C]
+#ifdef __clang__
+    #define CLANG_VERSION (__clang_major__ * 10000 + __clang_minor__ * 100 + __clang_patchlevel__)
+#endif
+\end{lstlisting}
+
+\textbf{MSVC:}
+\begin{lstlisting}[language=C]
+#ifdef _MSC_VER
+    #if _MSC_VER >= 1920
+        // Visual Studio 2019+
+    #endif
+#endif
+\end{lstlisting}
+
+\subsection{Platform Detection Macros}
+
+\begin{lstlisting}[language=C]
+// Architecture
+#if defined(__x86_64__) || defined(_M_X64)
+    #define ARCH_X64
+#elif defined(__i386__) || defined(_M_IX86)
+    #define ARCH_X86
+#elif defined(__arm__) || defined(_M_ARM)
+    #define ARCH_ARM
+#elif defined(__aarch64__)
+    #define ARCH_ARM64
+#endif
+
+// Operating System
+#if defined(_WIN32) || defined(_WIN64)
+    #define OS_WINDOWS
+#elif defined(__linux__)
+    #define OS_LINUX
+#elif defined(__APPLE__)
+    #define OS_MACOS
+#elif defined(__FreeBSD__)
+    #define OS_FREEBSD
+#endif
+\end{lstlisting}
+
+\subsection{Practical Example: Debug Logging}
+
+\begin{lstlisting}[language=C]
+#define LOG_DEBUG(fmt, ...) \
+    fprintf(stderr, "[%s:%d] " fmt "\n", __FILE__, __LINE__, ##__VA_ARGS__)
+
+#define LOG_FUNC_ENTRY() \
+    fprintf(stderr, "Entering %s() at %s:%d\n", __func__, __FILE__, __LINE__)
+
+void process_data(int value) {
+    LOG_FUNC_ENTRY();
+    LOG_DEBUG("Processing value: %d", value);
+    // ... processing code ...
+}
+
+int main(void) {
+    process_data(42);
+    return 0;
+}
+\end{lstlisting}
+
+Output:
+\begin{verbatim}
+Entering process_data() at source.c:10
+[source.c:11] Processing value: 42
+\end{verbatim}
+
+\section{\#define vs. enum vs. const}
+
+When should you use macros versus other constants?
+
+\subsection{Macros}
+
+\begin{lstlisting}[language=C]
+#define MAX_ITEMS 100
+#define VERSION "1.0.0"
+\end{lstlisting}
+
+\textbf{Pros:}
 \begin{itemize}
-  \item macro expansion
-  \item include path
-  \item header guard
-  \item translation unit
+    \item Works in preprocessor conditionals
+    \item No memory allocation (text substitution)
+    \item Can be undefined and redefined
 \end{itemize}
 
-\section{Experiment}
-See preprocessing-exp/preprocessing-exp.tex in this chapter.
+\textbf{Cons:}
+\begin{itemize}
+    \item No type checking
+    \item Not visible in debugger
+    \item Can cause unexpected substitutions
+\end{itemize}
+
+\subsection{enum}
+
+\begin{lstlisting}[language=C]
+enum {
+    MAX_ITEMS = 100,
+    BUFFER_SIZE = 1024
+};
+
+// Typed enums (C23 or earlier with compiler support)
+typedef enum Status {
+    STATUS_OK = 0,
+    STATUS_ERROR = 1,
+    STATUS_PENDING = 2
+} Status;
+\end{lstlisting}
+
+\textbf{Pros:}
+\begin{itemize}
+    \item Type-safe (with typed enums)
+    \item Visible in debugger
+    \item Scoped (with \texttt{enum class} in C++)
+\end{itemize}
+
+\textbf{Cons:}
+\begin{itemize}
+    \item Integer values only
+    \item Cannot be used in preprocessor conditionals
+\end{itemize}
+
+\subsection{const}
+
+\begin{lstlisting}[language=C]
+const int max_items = 100;
+const char* const version = "1.0.0";
+\end{lstlisting}
+
+\textbf{Pros:}
+\begin{itemize}
+    \item Type-safe
+    \item Scoped properly
+    \item Visible in debugger
+    \item Can take address
+\end{itemize}
+
+\textbf{Cons:}
+\begin{itemize}
+    \item Cannot be used in preprocessor conditionals
+    \item May occupy memory (though compilers often optimize)
+    \item Cannot be used for array sizes in C89 (VLA in C99)
+\end{itemize}
+
+\subsection{Recommendation}
+
+\begin{lstlisting}[language=C]
+// For preprocessor conditionals
+#define FEATURE_ENABLED 1
+#define PLATFORM_LINUX 1
+
+// For integer constants
+enum { MAX_ITEMS = 100, BUFFER_SIZE = 1024 };
+
+// For typed constants
+static const char* const APP_NAME = "MyApp";
+static const double PI = 3.141592653589793;
+\end{lstlisting}
+
+\section{Translation Units}
+
+A \textbf{translation unit} is the result of preprocessing a single source file with all its included headers. This is what the compiler proper processes.
+
+\subsection{Translation Unit Boundaries}
+
+Each \texttt{.c} file is a separate translation unit:
+
+\begin{verbatim}
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│     main.c      │     │    utils.c      │     │    config.c     │
+└────────┬────────┘     └────────┬────────┘     └────────┬────────┘
+         │                       │                       │
+         ▼                       ▼                       ▼
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│ Translation     │     │ Translation     │     │ Translation     │
+│ Unit 1          │     │ Unit 2          │     │ Unit 3          │
+└─────────────────┘     └─────────────────┘     └─────────────────┘
+         │                       │                       │
+         ▼                       ▼                       ▼
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│    main.o       │     │    utils.o      │     │    config.o     │
+└─────────────────┘     └─────────────────┘     └─────────────────┘
+         │                       │                       │
+         └───────────────────────┼───────────────────────┘
+                                 ▼
+                       ┌─────────────────┐
+                       │   Executable    │
+                       └─────────────────┘
+\end{verbatim}
+
+\subsection{Static Variables and Translation Units}
+
+Variables and functions with \texttt{static} linkage are private to their translation unit:
+
+\begin{lstlisting}[language=C]
+// utils.c
+static int internal_counter = 0;  // Only visible in utils.c
+
+static void internal_helper(void) {  // Only visible in utils.c
+    internal_counter++;
+}
+
+void public_function(void) {
+    internal_helper();
+}
+
+// main.c
+extern int internal_counter;  // Error! Not accessible
+\end{lstlisting}
+
+\subsection{One Definition Rule (ODR)}
+
+Each translation unit can have at most one definition of each external symbol. Violations cause linker errors:
+
+\begin{lstlisting}[language=C]
+// header.h
+int global_var = 42;  // WRONG! Multiple definitions if included in multiple .c files
+
+// Correct approach:
+// header.h
+extern int global_var;  // Declaration only
+
+// source.c
+int global_var = 42;  // Definition in one place
+\end{lstlisting}
+
+\section{Common Preprocessor Idioms}
+
+\subsection{Include Guard with \#pragma once}
+
+\begin{lstlisting}[language=C]
+#ifndef MYHEADER_H
+#define MYHEADER_H
+#pragma once
+
+// Header contents
+
+#endif /* MYHEADER_H */
+\end{lstlisting}
+
+This provides both compatibility and optimization.
+
+\subsection{Compile-Time Assertions}
+
+\begin{lstlisting}[language=C]
+// C11 _Static_assert
+_Static_assert(sizeof(int) == 4, "int must be 4 bytes");
+static_assert(sizeof(void*) == 8, "64-bit platform required");
+
+// Pre-C11 hack
+#define STATIC_ASSERT(cond, msg) \
+    typedef char static_assert_##msg[(cond) ? 1 : -1]
+
+STATIC_ASSERT(sizeof(int) == 4, int_must_be_4_bytes);
+\end{lstlisting}
+
+\subsection{X-Macro Pattern}
+
+Generate repetitive code from a data table:
+
+\begin{lstlisting}[language=C]
+// Define the list
+#define ITEM_LIST \
+    X(ITEM_A, 1) \
+    X(ITEM_B, 2) \
+    X(ITEM_C, 3)
+
+// Generate enum
+typedef enum {
+    #define X(name, value) name = value,
+    ITEM_LIST
+    #undef X
+} Items;
+
+// Generate string array
+const char* item_names[] = {
+    #define X(name, value) #name,
+    ITEM_LIST
+    #undef X
+};
+
+// Generate handler functions
+#define X(name, value) void handle_##name(void);
+ITEM_LIST
+#undef X
+
+// Expands to:
+// typedef enum { ITEM_A = 1, ITEM_B = 2, ITEM_C = 3 } Items;
+// const char* item_names[] = { "ITEM_A", "ITEM_B", "ITEM_C" };
+// void handle_ITEM_A(void);
+// void handle_ITEM_B(void);
+// void handle_ITEM_C(void);
+\end{lstlisting}
+
+\subsection{Counting Arguments}
+
+\begin{lstlisting}[language=C]
+#define VA_NARGS_IMPL(_1, _2, _3, _4, N, ...) N
+#define VA_NARGS(...) VA_NARGS_IMPL(__VA_ARGS__, 4, 3, 2, 1)
+
+VA_NARGS(a)        // 1
+VA_NARGS(a, b)     // 2
+VA_NARGS(a, b, c)  // 3
+\end{lstlisting}
+
+\section{Key Takeaways}
+
+\begin{enumerate}
+    \item \textbf{Preprocessing is text-only}: The preprocessor doesn't understand C syntax; it performs pure text substitutions.
+    \item \textbf{Parenthesize macro arguments}: Without parentheses, operator precedence can cause unexpected results.
+    \item \textbf{Beware of multiple evaluation}: Function-like macros can evaluate arguments multiple times, causing side effects.
+    \item \textbf{Use \texttt{\#pragma once} for headers}: It's simpler and less error-prone than traditional include guards.
+    \item \textbf{Conditional compilation is powerful}: Use it for platform detection, debug builds, and feature flags.
+    \item \textbf{Predefined macros are useful}: \texttt{\_\_FILE\_\_}, \texttt{\_\_LINE\_\_}, and \texttt{\_\_func\_\_} enable powerful debugging macros.
+    \item \textbf{Understand translation units}: Each \texttt{.c} file is a separate translation unit, and static symbols are private to their unit.
+    \item \textbf{Prefer alternatives when appropriate}: Use \texttt{enum} or \texttt{const} instead of macros for values that don't need preprocessor conditions.
+\end{enumerate}
+
+\section{Looking Ahead}
+
+Now that we understand how preprocessing transforms source code into translation units, we're ready to explore what happens next: compilation. In Chapter 3, we'll examine how the compiler parses C code, builds intermediate representations, performs optimizations, and generates assembly code.
+
+\section{Further Reading}
+
+\begin{itemize}
+    \item ``The C Programming Language'' (K\&R) - Chapter 4
+    \item C17 Standard (ISO/IEC 9899:2018) - Section 6.10 (Preprocessing directives)
+    \item GCC Preprocessor Documentation: \url{https://gcc.gnu.org/onlinedocs/cpp/}
+    \item ``Modern C'' by Jens Gustedt - Chapter 5 (Preprocessing)
+\end{itemize}

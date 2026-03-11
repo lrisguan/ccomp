@@ -1,40 +1,783 @@
 \chapter{C Compilation Overview}
 
-\section{Purpose}
-Provide a complete map of the compilation pipeline from source to executable.
+\section{Introduction}
 
-\section{Outline}
+When you write a C program, you're creating human-readable source code. But computers don't execute C code directly—they execute machine instructions, binary patterns that the CPU understands. The \textbf{compilation pipeline} is the bridge between these two worlds, transforming your source code through a series of well-defined stages, each producing intermediate artifacts.
+
+Understanding this pipeline is essential for:
+\begin{itemize}
+    \item \textbf{Debugging build failures}: Knowing which stage failed helps pinpoint the problem
+    \item \textbf{Optimizing performance}: Optimization happens at specific stages
+    \item \textbf{Understanding errors}: Different stages produce different kinds of errors
+    \item \textbf{Cross-compilation}: Each stage may run on different machines
+    \item \textbf{Build system design}: Makefiles and other build tools orchestrate these stages
+\end{itemize}
+
+This chapter provides a complete map of the compilation pipeline, showing how C source code becomes an executable program and what tools make this transformation possible.
+
+\section{The Complete Compilation Pipeline}
+
+The C compilation pipeline consists of four main stages, each converting one file format into another:
+
+\begin{verbatim}
+┌──────────────────────────────────────────────────────────────────────────┐
+│                    Complete Compilation Pipeline                         │
+├──────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│   Source Code   Preprocessing   Preprocessed   Compilation   Assembly    │
+│   (.c files) ────────> (.i files) ────────> (.s files) ────────>         │
+│                                                                          │
+│      │                        │                    │                     │
+│      │                        │                    │                     │
+│      ▼                        ▼                    ▼                     │
+│   ┌──────┐                ┌──────┐              ┌──────┐                 │
+│   │ .c   │  ──gcc -E──>   │ .i   │  ──gcc -S──> │ .s   │                 │
+│   └──────┘                └──────┘              └──────┘                 │
+│                                                                          │
+│   Assembly        Assembly        Object Files     Linking     Executable│
+│   (.s files) ───────────> (.o files) ───────────────────>                │
+│                                                                          │
+│      │                                 │                    │            │
+│      │                                 │                    │            │
+│      ▼                                 ▼                    ▼            │
+│   ┌──────┐                        ┌──────┐              ┌──────┐         │
+│   │ .s   │  ──as -o──>           │ .o   │  ──ld──>      │(none)│         │
+│   └──────┘                        └──────┘              └──────┘         │
+│                                                         (a.out)          │
+└──────────────────────────────────────────────────────────────────────────┘
+\end{verbatim}
+
+Each stage has a specific purpose and produces a distinct artifact:
+
+\begin{center}
+\begin{tabular}{|l|l|l|l|l|}
+\hline
+\textbf{Stage} & \textbf{Input} & \textbf{Output} & \textbf{Tool} & \textbf{Purpose} \\
+\hline
+Preprocessing & \texttt{.c} & \texttt{.i} & \texttt{cpp} (via \texttt{gcc -E}) & Macro expansion, file inclusion \\
+\hline
+Compilation & \texttt{.i} & \texttt{.s} & \texttt{cc1} (via \texttt{gcc -S}) & Parse, optimize, generate assembly \\
+\hline
+Assembly & \texttt{.s} & \texttt{.o} & \texttt{as} & Encode to machine code \\
+\hline
+Linking & \texttt{.o} & executable & \texttt{ld} & Combine objects, resolve symbols \\
+\hline
+\end{tabular}
+\end{center}
+
+\begin{quote}
+\textbf{Key Insight}: While we usually invoke \texttt{gcc} or \texttt{clang} to go directly from \texttt{.c} to executable, internally these drivers invoke separate programs for each stage. We can stop at any intermediate stage to inspect the artifacts.
+\end{quote}
+
+\subsection{Why Separate Stages Matter}
+
+The modular design of the compilation pipeline serves several important purposes:
+
 \begin{enumerate}
-  \item Pipeline stages and artifacts
-  \item .c to .i preprocessing
-  \item .i to .s compilation
-  \item .s to .o assembly
-  \item .o to executable linking
-  \item Toolchain components and roles
+    \item \textbf{Separation of Concerns}: Each stage focuses on one transformation, making the toolchain easier to develop and maintain
+
+    \item \textbf{Optimization Opportunities}: Different optimization techniques apply at different stages. For example:
+    \begin{itemize}
+        \item Preprocessor macros are expanded before compilation
+        \item Code optimization happens during compilation
+        \item Link-time optimization (LTO) can happen across translation units
+    \end{itemize}
+
+    \item \textbf{Debugging}: When something goes wrong, you can inspect intermediate files to understand where the problem occurred
+
+    \item \textbf{Language Interoperability}: Different frontends can produce the same intermediate representations, allowing code in different languages to be linked together
+
+    \item \textbf{Cross-compilation}: Each stage can theoretically run on different machines (e.g., compiling on a powerful build server for a target embedded system)
 \end{enumerate}
 
-\section{Content Plan}
+Let's now examine each stage in detail.
+
+\section{Stage 1: Preprocessing (\texttt{.c} $\to$ \texttt{.i})}
+
+\textbf{Preprocessing} is the first stage of compilation. It transforms your source code through \textbf{textual substitution} before the compiler ever sees it. The preprocessor doesn't understand C syntax—it works purely on text manipulation.
+
+\subsection{What the Preprocessor Does}
+
+The preprocessor performs three main operations:
+
+\begin{enumerate}
+    \item \textbf{File Inclusion}: Inserting the contents of other files (via \texttt{\#include})
+    \item \textbf{Macro Expansion}: Replacing macros with their definitions (via \texttt{\#define})
+    \item \textbf{Conditional Compilation}: Including or excluding code based on conditions (via \texttt{\#if}, \texttt{\#ifdef}, etc.)
+\end{enumerate}
+
+Consider this example:
+
+\begin{lstlisting}[language=C]
+// main.c
+#define MAX_SIZE 100
+#define SQUARE(x) ((x) * (x))
+
+#include <stdio.h>
+
+#ifdef DEBUG
+    #define LOG(msg) printf("DEBUG: \%s\n", msg)
+#else
+    #define LOG(msg) /* do nothing */
+#endif
+
+int main(void) {
+    int arr[MAX_SIZE];
+    LOG("Program started");
+    int result = SQUARE(5);
+    return 0;
+}
+\end{lstlisting}
+
+After preprocessing (run \texttt{gcc -E main.c -o main.i}), we get a massive file (typically thousands of lines) where:
 \begin{itemize}
-  \item Pipeline overview with artifact boundaries.
-  \item Stage responsibilities: compiler, assembler, linker.
-  \item Common drivers: gcc, clang, as, ld.
-  \item Why separation matters for debugging and optimization.
+    \item \texttt{\#include <stdio.h>} has been replaced with the entire contents of \texttt{stdio.h} (and all headers it includes)
+    \item \texttt{MAX\_SIZE} has been replaced with \texttt{100}
+    \item \texttt{SQUARE(5)} has been replaced with \texttt{((5) * (5))}
+    \item The \texttt{LOG} macro has been replaced either with \texttt{printf} or nothing, depending on whether \texttt{DEBUG} is defined
 \end{itemize}
 
-\section{Key Terms}
+\subsection{Preprocessing Example}
+
+Let's create a simpler example to see the transformation clearly:
+
+\begin{lstlisting}[language=C]
+// example.c
+#define PI 3.14159
+#define AREA(r) (PI * (r) * (r))
+
+double circle_area(double radius) {
+    return AREA(radius);
+}
+\end{lstlisting}
+
+Running \texttt{gcc -E example.c} produces:
+
+\begin{lstlisting}[language=C]
+# 1 "example.c"
+# 1 "<built-in>"
+# 1 "<command-line>"
+# 1 "example.c"
+
+double circle_area(double radius) {
+    return (3.14159 * (radius) * (radius));
+}
+\end{lstlisting}
+
+Notice that:
 \begin{itemize}
-  \item compilation pipeline
-  \item translation unit
-  \item assembler
-  \item linker
+    \item All \texttt{\#define} directives are gone
+    \item The macros have been expanded
+    \item Preprocessor directives (lines starting with \texttt{\#}) show the original source location for debugging
 \end{itemize}
 
-\section{Diagrams Planned}
-\begin{figure}[h]
-  \centering
-  \fbox{\parbox{0.9\linewidth}{End-to-end pipeline diagram placeholder.}}
-  \caption{Planned compilation pipeline diagram.}
-\end{figure}
+\subsection{Translation Units}
 
-\section{Experiment}
-See c-compilation-overview-exp/c-compilation-overview-exp.tex in this chapter.
+The output of preprocessing is called a \textbf{translation unit}—a single, complete source file ready for compilation. Each \texttt{.c} file becomes one translation unit, which the compiler processes independently.
+
+This is crucial for understanding compilation:
+\begin{itemize}
+    \item Each \texttt{.c} file is compiled \textbf{separately}
+    \item The compiler doesn't see other \texttt{.c} files
+    \item Cross-file references are resolved during \textbf{linking}
+\end{itemize}
+
+\begin{quote}
+\textbf{Common Pitfall}: Because each \texttt{.c} file is compiled independently, you must ensure definitions are consistent across translation units. This is why we use header files (\texttt{.h} files)—to share declarations between compilation units.
+\end{quote}
+
+We'll explore preprocessing in depth in Chapter 2.
+
+\section{Stage 2: Compilation (\texttt{.i} $\to$ \texttt{.s})}
+
+\textbf{Compilation} proper transforms the preprocessed source code into assembly language. This is where the heavy lifting happens: parsing, semantic analysis, optimization, and code generation.
+
+\subsection{What the Compiler Does}
+
+The compiler performs several sophisticated operations:
+
+\begin{enumerate}
+    \item \textbf{Lexical Analysis}: Breaking the code into tokens (identifiers, keywords, operators)
+    \item \textbf{Parsing}: Building an Abstract Syntax Tree (AST) based on C grammar
+    \item \textbf{Semantic Analysis}: Type checking, ensuring variables are declared before use, etc.
+    \item \textbf{Intermediate Representation}: Converting the AST into an IR for optimization
+    \item \textbf{Optimization}: Applying various transformations to improve performance
+    \item \textbf{Code Generation}: Emitting assembly language for the target architecture
+\end{enumerate}
+
+\subsection{Compilation Example}
+
+Let's compile a simple function:
+
+\begin{lstlisting}[language=C]
+// add.c
+int add(int a, int b) {
+    return a + b;
+}
+\end{lstlisting}
+
+First preprocess it:
+\begin{verbatim}
+gcc -E add.c -o add.i
+\end{verbatim}
+
+Then compile to assembly:
+\begin{verbatim}
+gcc -S add.i -o add.s -fno-asynchronous-unwind-tables -fno-stack-protector
+\end{verbatim}
+
+The resulting assembly (on x86-64 Linux):
+
+\begin{lstlisting}[language=nasm]
+    .intel_syntax noprefix
+    .globl  add
+    .type   add, @function
+add:
+    mov eax, edi
+    add eax, esi
+    ret
+\end{lstlisting}
+
+Even from this simple example, we can see:
+\begin{itemize}
+    \item The function is marked as global (\texttt{.globl})
+    \item Arguments are in registers (\texttt{edi} and \texttt{esi} per the calling convention)
+    \item The return value goes in \texttt{eax}
+    \item The \texttt{ret} instruction returns to the caller
+\end{itemize}
+
+\subsection{Why Assembly?}
+
+You might wonder: why generate assembly instead of going directly to machine code? Several reasons:
+
+\begin{enumerate}
+    \item \textbf{Readability}: Assembly is human-readable, useful for debugging
+    \item \textbf{Portability}: The same compiler can use different assemblers for different targets
+    \item \textbf{Flexibility}: Developers can write hand-optimized assembly when needed
+    \item \textbf{Debugging}: Assembly listings with source annotations help understand what the compiler did
+\end{enumerate}
+
+\subsection{Optimization Levels}
+
+The compiler's behavior changes dramatically based on optimization levels:
+
+\begin{verbatim}
+gcc -O0 add.c -o add.o    # No optimization (default for debugging)
+gcc -O1 add.c -o add.o    # Basic optimization
+gcc -O2 add.c -o add.o    # Standard optimization (recommended)
+gcc -O3 add.c -o add.o    # Aggressive optimization
+gcc -Os add.c -o add.o    # Optimize for code size
+\end{verbatim}
+
+With \texttt{-O2}, our \texttt{add} function becomes even simpler (the compiler might inline it entirely if it's small enough).
+
+We'll explore compilation internals in depth in Chapter 3.
+
+\section{Stage 3: Assembly (\texttt{.s} $\to$ \texttt{.o})}
+
+\textbf{Assembly} converts human-readable assembly language into machine code, producing an \textbf{object file}. This is a binary format, but not yet executable.
+
+\subsection{What the Assembler Does}
+
+The assembler:
+
+\begin{enumerate}
+    \item \textbf{Parses Assembly}: Converts mnemonic instructions into their binary encodings
+    \item \textbf{Resolves Symbols}: Creates symbol table entries for labels and external references
+    \item \textbf{Generates Sections}: Places code and data into appropriate sections (\texttt{.text}, \texttt{.data}, etc.)
+    \item \textbf{Creates Relocations}: Records locations that need fixing during linking
+\end{enumerate}
+
+\subsection{Assembly Example}
+
+Let's assemble our \texttt{add.s} file:
+
+\begin{verbatim}
+as add.s -o add.o
+\end{verbatim}
+
+The resulting \texttt{add.o} is a binary file in \textbf{ELF format} (Executable and Linkable Format). We can inspect it:
+
+\begin{verbatim}
+$ file add.o
+add.o: ELF 64-bit LSB relocatable, x86-64, version 1 (SYSV), not stripped
+
+$ ls -l add.o
+-rw-r--r-- 1 user user 864 Nov 15 10:30 add.o
+\end{verbatim}
+
+The file is only 864 bytes, containing:
+\begin{itemize}
+    \item Machine code for the \texttt{add} function
+    \item A symbol table noting that \texttt{add} is a global symbol
+    \item Section headers marking where code and data are located
+    \item Relocation information (none needed for this simple function)
+\end{itemize}
+
+\subsection{Object File Contents}
+
+Object files contain several key components:
+
+\begin{center}
+\begin{tabular}{|l|l|}
+\hline
+\textbf{Component} & \textbf{Purpose} \\
+\hline
+\textbf{Section Headers} & Describe the sections (\texttt{.text}, \texttt{.data}, etc.) \\
+\hline
+\textbf{Code Sections} & Machine code (\texttt{.text} for executable code) \\
+\hline
+\textbf{Data Sections} & Initialized data (\texttt{.data}), zero-initialized data (\texttt{.bss}) \\
+\hline
+\textbf{Symbol Table} & List of defined and undefined symbols \\
+\hline
+\textbf{Relocation Entries} & Places needing address fixups during linking \\
+\hline
+\textbf{Debug Information} & (optional) Debug symbols for gdb \\
+\hline
+\end{tabular}
+\end{center}
+
+\subsection{Why Object Files?}
+
+Object files are \textbf{relocatable}—they don't have fixed memory addresses. This allows:
+\begin{itemize}
+    \item Multiple object files to be linked together
+    \item Code to be loaded at any memory address
+    \item Libraries to be shared across multiple programs
+\end{itemize}
+
+The linker will ultimately resolve all symbols and assign final addresses.
+
+We'll explore assembly and object files in depth in Chapter 4.
+
+\section{Stage 4: Linking (\texttt{.o} $\to$ executable)}
+
+\textbf{Linking} is the final stage, combining multiple object files and libraries into a single executable program. This is where separate compilation units finally come together.
+
+\subsection{What the Linker Does}
+
+The linker performs several critical tasks:
+
+\begin{enumerate}
+    \item \textbf{Symbol Resolution}: Connecting references to definitions across object files
+    \item \textbf{Relocation}: Assigning final memory addresses and fixing references
+    \item \textbf{Library Linking}: Including code from standard and user libraries
+    \item \textbf{Executable Creation}: Setting up the executable file format with proper headers
+\end{enumerate}
+
+\subsection{Linking Example}
+
+Let's create a complete program with two files:
+
+\begin{lstlisting}[language=C]
+// main.c
+extern int add(int a, int b);
+
+int main(void) {
+    int result = add(5, 3);
+    return result == 8 ? 0 : 1;
+}
+\end{lstlisting}
+
+\begin{lstlisting}[language=C]
+// add.c
+int add(int a, int b) {
+    return a + b;
+}
+\end{lstlisting}
+
+Compile and assemble separately:
+
+\begin{verbatim}
+gcc -c main.c -o main.o    # Stops after assembly
+gcc -c add.c -o add.o      # Stops after assembly
+\end{verbatim}
+
+Now link them:
+
+\begin{verbatim}
+gcc main.o add.o -o program
+\end{verbatim}
+
+Or using the linker directly:
+
+\begin{verbatim}
+ld main.o add.o -o program \
+   /usr/lib/x86_64-linux-gnu/crt1.o \
+   /usr/lib/x86_64-linux-gnu/crti.o \
+   /usr/lib/x86_64-linux-gnu/crtn.o \
+   -lc -dynamic-linker /lib64/ld-linux-x86-64.so.2
+\end{verbatim}
+
+The \texttt{gcc} version is simpler because it automatically includes:
+\begin{itemize}
+    \item \textbf{C runtime startup code} (\texttt{crt1.o}, \texttt{crti.o}, \texttt{crtn.o})
+    \item \textbf{Standard library} (\texttt{-lc} for libc)
+    \item \textbf{Dynamic linker} path
+\end{itemize}
+
+\subsection{Symbol Resolution}
+
+Symbol resolution is the linker's most critical job. Consider our example:
+
+\begin{verbatim}
+main.o:  UNDEFINED: add
+         DEFINED:   main
+
+add.o:   DEFINED:   add
+\end{verbatim}
+
+The linker sees that \texttt{main.o} references \texttt{add}, finds it defined in \texttt{add.o}, and connects them. If \texttt{add} were not defined anywhere, the linker would error:
+
+\begin{verbatim}
+ld: main.o: in function 'main':
+main.c:(.text+0x14): undefined reference to 'add'
+\end{verbatim}
+
+\subsection{Static vs. Dynamic Linking}
+
+Linking can happen at different times:
+
+\textbf{Static Linking}:
+\begin{itemize}
+    \item All library code is included in the executable
+    \item Executables are larger but self-contained
+    \item No runtime dependencies
+    \item Command: \texttt{gcc program.o -o program -static} or \texttt{gcc program.o -o program -Wl,-Bstatic -lfoo}
+\end{itemize}
+
+\textbf{Dynamic Linking} (default):
+\begin{itemize}
+    \item Library code is referenced but not included
+    \item Executables are smaller
+    \item Libraries loaded at runtime
+    \item Allows library updates without recompiling
+    \item Command: \texttt{gcc program.o -o program} (default)
+\end{itemize}
+
+\begin{verbatim}
+$ ldd program  # Shows dynamic library dependencies
+    linux-vdso.so.1
+    libc.so.6 => /lib/x86_64-linux-gnu/libc.so.6
+    /lib64/ld-linux-x86-64.so.2
+\end{verbatim}
+
+\subsection{Library Search Order}
+
+The linker searches for libraries in a specific order:
+
+\begin{enumerate}
+    \item Paths specified with \texttt{-L} flags (left to right)
+    \item Standard system library directories (\texttt{/usr/lib}, \texttt{/lib}, etc.)
+    \item Paths in \texttt{LD\_LIBRARY\_PATH} environment variable (at runtime)
+\end{enumerate}
+
+\textbf{Important}: The order of \texttt{-l} flags matters! Libraries are searched left-to-right, and a library is only used to resolve undefined symbols from libraries to its left.
+
+\begin{verbatim}
+# Wrong: libfoo needs symbols from libbar, but libbar is searched first
+gcc program.o -o program -lfoo -lbar
+
+# Correct: libbar is available when libfoo needs it
+gcc program.o -o program -lbar -lfoo
+\end{verbatim}
+
+We'll explore linking and relocation in depth in Chapter 6.
+
+\section{Toolchain Components and Roles}
+
+Now that we've seen the complete pipeline, let's identify the actual tools involved:
+
+\subsection{The GCC Toolchain}
+
+When you install \texttt{gcc}, you actually get a collection of programs:
+
+\begin{verbatim}
+$ which gcc cc1 as ld
+/usr/bin/gcc
+/usr/lib/gcc/x86_64-linux-gnu/11/cc1
+/usr/bin/as
+/usr/bin/ld
+\end{verbatim}
+
+\begin{center}
+\begin{tabular}{|l|l|l|l|}
+\hline
+\textbf{Tool} & \textbf{Full Name} & \textbf{Role} & \textbf{Stage} \\
+\hline
+\texttt{gcc}/\texttt{clang} & Compiler Driver & Orchestrates the pipeline & All \\
+\hline
+\texttt{cpp} & C Preprocessor & Macro expansion, includes & Preprocessing \\
+\hline
+\texttt{cc1} & C Compiler & Parses, optimizes, generates assembly & Compilation \\
+\hline
+\texttt{as} & Assembler & Assembly to machine code & Assembly \\
+\hline
+\texttt{ld} & Linker & Combines objects, resolves symbols & Linking \\
+\hline
+\end{tabular}
+\end{center}
+
+\begin{quote}
+\textbf{Note}: \texttt{gcc} is technically a \textbf{compiler driver}—it doesn't do compilation itself. Instead, it invokes the appropriate tools (\texttt{cpp}, \texttt{cc1}, \texttt{as}, \texttt{ld}) in the correct order with the right arguments.
+\end{quote}
+
+\subsection{The Clang Toolchain}
+
+Clang follows a similar architecture:
+
+\begin{center}
+\begin{tabular}{|l|l|}
+\hline
+\textbf{Tool} & \textbf{Role} \\
+\hline
+\texttt{clang} & Compiler driver (front-end) \\
+\hline
+\texttt{llvm-as} & LLVM assembler \\
+\hline
+\texttt{llc} & LLVM static compiler \\
+\hline
+\texttt{lld} & LLVM linker \\
+\hline
+\end{tabular}
+\end{center}
+
+\subsection{Compiler Drivers: Why They Exist}
+
+You might wonder: if we have separate tools (\texttt{cpp}, \texttt{cc1}, \texttt{as}, \texttt{ld}), why do we typically just run \texttt{gcc}?
+
+\textbf{Compiler drivers} exist to:
+\begin{enumerate}
+    \item \textbf{Simplify}: Hide complexity from the user
+    \item \textbf{Standardize}: Provide a consistent interface across platforms
+    \item \textbf{Orchestrate}: Run tools in the correct order
+    \item \textbf{Configure}: Add necessary flags and include paths automatically
+\end{enumerate}
+
+When you run:
+
+\begin{verbatim}
+gcc -O2 -Wall program.c -o program
+\end{verbatim}
+
+The driver:
+\begin{enumerate}
+    \item Determines the file type (C source)
+    \item Constructs the command line for \texttt{cpp}
+    \item Constructs the command line for \texttt{cc1} (adding \texttt{-O2} optimization)
+    \item Constructs the command line for \texttt{as}
+    \item Constructs the command line for \texttt{ld} (adding necessary libraries)
+    \item Runs each tool sequentially
+    \item Cleans up intermediate files (unless you use \texttt{-save-temps})
+\end{enumerate}
+
+\subsection{Stopping at Intermediate Stages}
+
+You can stop the compilation process at any stage:
+
+\begin{verbatim}
+# Stop after preprocessing (keep .i file)
+gcc -E program.c -o program.i
+
+# Stop after compilation (keep .s file)
+gcc -S program.c -o program.s
+
+# Stop after assembly (keep .o file)
+gcc -c program.c -o program.o
+
+# Keep all intermediate files
+gcc -save-temps program.c -o program
+# Creates: program.i, program.s, program.o, program
+\end{verbatim}
+
+This is incredibly useful for:
+\begin{itemize}
+    \item \textbf{Debugging}: Seeing what the preprocessor or compiler actually did
+    \item \textbf{Learning}: Understanding how C code transforms to assembly
+    \item \textbf{Optimizing}: Inspecting compiler output at different optimization levels
+\end{itemize}
+
+\subsection{Multiple Source Files}
+
+For projects with multiple source files:
+
+\begin{verbatim}
+# Compile all files separately (faster for incremental builds)
+gcc -c main.c -o main.o
+gcc -c util.c -o util.o
+gcc -c data.c -o data.o
+gcc main.o util.o data.o -o program
+
+# Or let the driver do it (one command)
+gcc main.c util.c data.c -o program
+\end{verbatim}
+
+The second approach compiles each \texttt{.c} file to \texttt{.o}, then links them all.
+
+\section{A Complete Example: Tracing the Pipeline}
+
+Let's trace a complete program through all four stages:
+
+\begin{lstlisting}[language=C]
+// greet.c
+#include <stdio.h>
+
+#define GREETING "Hello, World!"
+
+int main(void) {
+    printf("%s\n", GREETING);
+    return 0;
+}
+\end{lstlisting}
+
+\subsection{Stage 1: Preprocessing}
+
+\begin{verbatim}
+gcc -E greet.c -o greet.i
+\end{verbatim}
+
+\texttt{greet.i} contains the preprocessed source (over 2000 lines due to \texttt{stdio.h} expansion). The key parts:
+
+\begin{lstlisting}[language=C]
+# 1 "greet.c"
+# 1 "<built-in>"
+# 1 "<command-line>"
+# 1 "greet.c"
+# 1 "/usr/include/stdio.h" 1 3 4
+... [thousands of lines from stdio.h] ...
+# 2 "greet.c" 2
+
+int main(void) {
+    printf("%s\n", "Hello, World!");
+    return 0;
+}
+\end{lstlisting}
+
+Notice:
+\begin{itemize}
+    \item \texttt{\#include <stdio.h>} is gone, replaced by its contents
+    \item \texttt{GREETING} macro has been expanded to \texttt{"Hello, World!"}
+\end{itemize}
+
+\subsection{Stage 2: Compilation}
+
+\begin{verbatim}
+gcc -S greet.i -o greet.s
+\end{verbatim}
+
+\texttt{greet.s} contains assembly code. Simplified version:
+
+\begin{lstlisting}[language={[x86masm]Assembler}]
+    .file   "greet.c"
+    .intel_syntax noprefix
+    .section    .rodata
+.LC0:
+    .string "Hello, World!"
+    .text
+    .globl  main
+    .type   main, @function
+main:
+    push    rbp
+    mov     rbp, rsp
+    sub     rsp, 16
+    lea     rdi, [rip + .LC0]
+    call    printf
+    mov     eax, 0
+    leave
+    ret
+    .size   main, .-main
+\end{lstlisting}
+
+Key observations:
+\begin{itemize}
+    \item The string literal is in the \texttt{.rodata} section (read-only data)
+    \item \texttt{printf} is called with the string address
+    \item Return value 0 is placed in \texttt{eax}
+\end{itemize}
+
+\subsection{Stage 3: Assembly}
+
+\begin{verbatim}
+as greet.s -o greet.o
+\end{verbatim}
+
+\texttt{greet.o} is now a binary object file:
+
+\begin{verbatim}
+$ file greet.o
+greet.o: ELF 64-bit LSB relocatable, x86-64, version 1 (SYSV), not stripped
+
+$ size greet.o
+   text    data     bss     dec     hex filename
+    135       8       0     143      8f greet.o
+\end{verbatim}
+
+The object file contains:
+\begin{itemize}
+    \item 135 bytes of code (\texttt{.text})
+    \item 8 bytes of data (the string in \texttt{.rodata})
+    \item A symbol table marking \texttt{main} as defined and \texttt{printf} as undefined
+    \item Relocation entries for the string reference and \texttt{printf} call
+\end{itemize}
+
+\subsection{Stage 4: Linking}
+
+\begin{verbatim}
+gcc greet.o -o greet
+# Or explicitly:
+ld greet.o -o greet \
+   /usr/lib/x86_64-linux-gnu/crt1.o \
+   /usr/lib/x86_64-linux-gnu/crti.o \
+   /usr/lib/x86_64-linux-gnu/crtn.o \
+   -lc -dynamic-linker /lib64/ld-linux-x86-64.so.2
+\end{verbatim}
+
+Now \texttt{greet} is an executable:
+
+\begin{verbatim}
+$ file greet
+greet: ELF 64-bit LSB executable, x86-64, version 1 (SYSV), dynamically linked, interpreter /lib64/ld-linux-x86-64.so.2
+
+$ ls -l greet
+-rwxr-xr-x 1 user user 16856 Nov 15 10:45 greet
+
+$ ./greet
+Hello, World!
+\end{verbatim}
+
+\section{Key Takeaways}
+
+\begin{enumerate}
+    \item \textbf{The C compilation pipeline has four stages}: Preprocessing, Compilation, Assembly, and Linking. Each stage transforms one file format into another.
+
+    \item \textbf{Preprocessing (\texttt{.c} $\to$ \texttt{.i})}: Textual substitution through macro expansion, file inclusion, and conditional compilation. Creates translation units.
+
+    \item \textbf{Compilation (\texttt{.i} $\to$ \texttt{.s})}: Parses code, builds an AST, generates intermediate representation, applies optimizations, and emits assembly language.
+
+    \item \textbf{Assembly (\texttt{.s} $\to$ \texttt{.o})}: Converts assembly to machine code, creating relocatable object files with symbol tables and relocations.
+
+    \item \textbf{Linking (\texttt{.o} $\to$ executable)}: Combines object files, resolves symbols, applies relocations, and creates the final executable with proper runtime setup.
+
+    \item \textbf{Toolchain components}: \texttt{gcc}/\texttt{clang} are compiler drivers that orchestrate \texttt{cpp}, \texttt{cc1}, \texttt{as}, and \texttt{ld}. Understanding each tool helps debug build issues.
+
+    \item \textbf{Separate compilation}: Each \texttt{.c} file becomes one translation unit, compiled independently. Cross-file references are resolved during linking.
+
+    \item \textbf{You can stop at any stage}: Use \texttt{-E} (preprocessor), \texttt{-S} (compilation), \texttt{-c} (assembly), or \texttt{-save-temps} (keep everything) to inspect intermediate artifacts.
+
+    \item \textbf{Optimization levels matter}: \texttt{-O0} (fast compilation, good for debugging), \texttt{-O2} (recommended for production), \texttt{-O3} (maximum optimization), \texttt{-Os} (optimize for size).
+
+    \item \textbf{Understanding the pipeline helps}: Debug build failures, optimize performance, interpret compiler errors, and design effective build systems.
+\end{enumerate}
+
+\section{Looking Ahead}
+
+Now that we've seen the complete compilation pipeline, we'll examine each stage in detail:
+
+\begin{itemize}
+    \item \textbf{Chapter 2}: Preprocessing—how macros work, include file handling, conditional compilation
+    \item \textbf{Chapter 3}: Compilation internals—lexers, parsers, ASTs, IR, optimization
+    \item \textbf{Chapter 4}: Assembly and object files—assembler syntax, object file structure
+    \item \textbf{Chapter 5}: ELF format—headers, sections, segments, symbols, relocations
+    \item \textbf{Chapter 6}: Linking and relocation—symbol resolution, static vs. dynamic linking
+\end{itemize}

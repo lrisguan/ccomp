@@ -1,52 +1,299 @@
-\begin{experiment}
-\textbf{Objective}
-\begin{itemize}
-  \item Produce each intermediate artifact and identify the tool responsible for it.
-\end{itemize}
+\chapter{Experiment: Tracing the Complete Compilation Pipeline}
 
-\textbf{Setup requirements}
-\begin{itemize}
-  \item gcc or clang installed.
-  \item Linux or WSL recommended.
-\end{itemize}
+\section{Objective}
 
-\textbf{Step-by-step commands}
+This experiment will guide you through every stage of the C compilation pipeline, producing each intermediate artifact and understanding what happens at each step:
 \begin{enumerate}
-  \item Create a minimal program:
+\item Preprocessing: source code transformation
+\item Compilation: C to assembly
+\item Assembly: assembly to object code
+\item Linking: object files to executable
+\end{enumerate}
+
+\section{Setup Requirements}
+
+\begin{itemize}
+\item GCC or Clang compiler
+\item Linux or WSL recommended
+\item Basic command line familiarity
+\item Tools: gcc, as, ld, nm, objdump, readelf
+\end{itemize}
+
+\section{Experiment 1: The Complete Pipeline}
+
+\subsection{Step 1: Create a Multi-File Program}
+
+Create a header file \texttt{calc.h}:
+
+\begin{lstlisting}[language=C]
+#ifndef CALC_H
+#define CALC_H
+
+int add(int a, int b);
+int multiply(int a, int b);
+
+#endif
+\end{lstlisting}
+
+Create \texttt{calc.c}:
+
+\begin{lstlisting}[language=C]
+#include "calc.h"
+
+int add(int a, int b) {
+    return a + b;
+}
+
+int multiply(int a, int b) {
+    return a * b;
+}
+\end{lstlisting}
+
+Create \texttt{main.c}:
+
 \begin{lstlisting}[language=C]
 #include <stdio.h>
-int main(void) { puts("hi"); return 0; }
-\end{lstlisting}
-  \item Generate preprocessed output:
-\begin{lstlisting}[language=bash]
-gcc -E -o hello.i hello.c
-\end{lstlisting}
-  \item Generate assembly:
-\begin{lstlisting}[language=bash]
-gcc -S -o hello.s hello.c
-\end{lstlisting}
-  \item Assemble to object file:
-\begin{lstlisting}[language=bash]
-gcc -c -o hello.o hello.s
-\end{lstlisting}
-  \item Link to executable:
-\begin{lstlisting}[language=bash]
-gcc -o hello hello.o
-\end{lstlisting}
-\end{enumerate}
+#include "calc.h"
 
-\textbf{Expected output explanation}
+#define RESULT_VALUE 42
+
+int main(void) {
+    int x = add(10, 20);
+    int y = multiply(3, 4);
+    printf("add: %d, multiply: %d, result: %d\n", 
+           x, y, RESULT_VALUE);
+    return 0;
+}
+\end{lstlisting}
+
+\subsection{Step 2: Stage 1 - Preprocessing}
+
+Generate preprocessed output:
+
+\begin{lstlisting}[language=bash]
+gcc -E main.c -o main.i
+gcc -E calc.c -o calc.i
+\end{lstlisting}
+
+Examine the preprocessed output:
+
+\begin{lstlisting}[language=bash]
+head -50 main.i
+tail -30 main.i
+wc -l main.c main.i
+\end{lstlisting}
+
+\textbf{What to observe:}
 \begin{itemize}
-  \item hello.i is expanded C after preprocessing.
-  \item hello.s is target assembly.
-  \item hello.o is a relocatable object file.
-  \item hello is the final linked executable.
+\item \texttt{\#include <stdio.h>} is expanded to hundreds of lines
+\item \texttt{\#include "calc.h"} is replaced with the header contents
+\item \texttt{RESULT\_VALUE} is replaced with \texttt{42}
+\item Header guards prevent double inclusion
 \end{itemize}
 
-\textbf{Questions for reader}
+\subsection{Step 3: Stage 2 - Compilation to Assembly}
+
+Generate assembly from preprocessed source:
+
+\begin{lstlisting}[language=bash]
+gcc -S main.i -o main.s
+gcc -S calc.i -o calc.s
+\end{lstlisting}
+
+Examine the assembly:
+
+\begin{lstlisting}[language=bash]
+cat main.s
+cat calc.s
+\end{lstlisting}
+
+\textbf{What to observe:}
+\begin{itemize}
+\item Function labels (\texttt{main:}, \texttt{add:}, \texttt{multiply:})
+\item Assembly directives (\texttt{.text}, \texttt{.globl}, \texttt{.type})
+\item Instructions (\texttt{pushq}, \texttt{movl}, \texttt{call}, \texttt{ret})
+\item References to \texttt{printf} (external symbol)
+\end{itemize}
+
+\subsection{Step 4: Stage 3 - Assembly to Object Code}
+
+Generate object files:
+
+\begin{lstlisting}[language=bash]
+gcc -c main.s -o main.o
+gcc -c calc.s -o calc.o
+\end{lstlisting}
+
+Examine object files:
+
+\begin{lstlisting}[language=bash]
+file main.o
+file calc.o
+nm main.o
+nm calc.o
+\end{lstlisting}
+
+\textbf{What to observe:}
+\begin{itemize}
+\item Object files are ``relocatable''
+\item \texttt{main.o} has undefined references to \texttt{add}, \texttt{multiply}, \texttt{printf}
+\item \texttt{calc.o} defines \texttt{add} and \texttt{multiply}
+\end{itemize}
+
+View relocations:
+
+\begin{lstlisting}[language=bash]
+readelf -r main.o
+objdump -r main.o
+\end{lstlisting}
+
+\subsection{Step 5: Stage 4 - Linking}
+
+Link object files into executable:
+
+\begin{lstlisting}[language=bash]
+gcc main.o calc.o -o program
+./program
+\end{lstlisting}
+
+Expected output:
+
+\begin{lstlisting}
+add: 30, multiply: 12, result: 42
+\end{lstlisting}
+
+\section{Experiment 2: Examining Each Artifact}
+
+\subsection{Artifact Sizes}
+
+Compare sizes at each stage:
+
+\begin{lstlisting}[language=bash]
+ls -l main.c main.i main.s main.o program
+size main.o program
+\end{lstlisting}
+
+\textbf{Why sizes change:}
+\begin{itemize}
+\item \texttt{.i} file: Much larger due to header expansion
+\item \texttt{.s} file: Smaller, just assembly instructions
+\item \texttt{.o} file: Binary, includes symbol tables and relocations
+\item Executable: Largest, includes all linked code
+\end{itemize}
+
+\subsection{Symbol Tables}
+
+Examine symbols in object files vs executable:
+
+\begin{lstlisting}[language=bash]
+echo "=== main.o symbols ===" && nm main.o
+echo "=== calc.o symbols ===" && nm calc.o
+echo "=== program symbols ===" && nm program | head -20
+\end{lstlisting}
+
+\section{Experiment 3: Using Individual Tools}
+
+\subsection{The Preprocessor (cpp)}
+
+Run preprocessor standalone:
+
+\begin{lstlisting}[language=bash]
+cpp main.c -o main.i
+gcc -E main.c -o main.i
+\end{lstlisting}
+
+\subsection{The Assembler (as)}
+
+Assemble directly:
+
+\begin{lstlisting}[language=bash]
+as main.s -o main.o
+\end{lstlisting}
+
+\subsection{The Linker (ld)}
+
+Link directly:
+
+\begin{lstlisting}[language=bash]
+ld main.o calc.o -o program -lc \
+   --dynamic-linker /lib64/ld-linux-x86-64.so.2
+\end{lstlisting}
+
+\section{Experiment 4: Understanding the Driver}
+
+The \texttt{gcc} command is a ``driver'' that orchestrates all tools:
+
+\begin{lstlisting}[language=bash]
+gcc -v main.c calc.c -o program 2>&1 | grep -E "cc1|as|collect2"
+\end{lstlisting}
+
+\textbf{What happens:}
 \begin{enumerate}
-  \item Which step introduces symbols that the linker resolves?
-  \item How large is each artifact and why does the size change?
-  \item Which tools can be swapped out in this pipeline?
+\item \texttt{cc1} compiles C to assembly
+\item \texttt{as} assembles to object files
+\item \texttt{collect2} (linker wrapper) links everything
 \end{enumerate}
-\end{experiment}
+
+\section{Experiment 5: Examining Dependencies}
+
+\subsection{Include Dependencies}
+
+View all included files:
+
+\begin{lstlisting}[language=bash]
+gcc -M main.c
+gcc -MM main.c  # System headers excluded
+gcc -H main.c 2>&1 | head -20
+\end{lstlisting}
+
+\subsection{Library Dependencies}
+
+View shared library dependencies:
+
+\begin{lstlisting}[language=bash]
+ldd program
+readelf -d program | grep NEEDED
+\end{lstlisting}
+
+\section{Questions for Reader}
+
+\subsection{Basic Understanding}
+
+\begin{enumerate}
+\item List the four main stages of compilation. What does each stage produce?
+\item Why is the preprocessed file (\texttt{.i}) so much larger than the original source?
+\item In \texttt{main.o}, why are \texttt{add} and \texttt{multiply} listed as undefined?
+\item Which tool handles macro expansion? Which handles symbol resolution?
+\end{enumerate}
+
+\subsection{Intermediate Understanding}
+
+\begin{enumerate}
+\setcounter{enumi}{4}
+\item What happens when \texttt{\#include <stdio.h>} is processed?
+\item What are relocation entries? Why are they needed?
+\item What does the linker do that the compiler cannot?
+\item Why is \texttt{gcc} called a ``driver'' rather than a compiler?
+\end{enumerate}
+
+\subsection{Advanced Understanding}
+
+\begin{enumerate}
+\setcounter{enumi}{8}
+\item Why is separate compilation useful?
+\item If you change only \texttt{calc.c}, which stages need to be re-run?
+\item How would the pipeline differ for cross-compilation?
+\item What would change in the linking stage if you used \texttt{-static}?
+\end{enumerate}
+
+\section{Summary}
+
+Through these experiments, you should now understand:
+
+\begin{itemize}
+\item \textbf{Pipeline Stages}: Preprocessing $\rightarrow$ Compilation $\rightarrow$ Assembly $\rightarrow$ Linking
+\item \textbf{Artifacts}: Each stage produces a distinct file type (\texttt{.i}, \texttt{.s}, \texttt{.o}, executable)
+\item \textbf{Tool Roles}: Each tool (cpp, cc1, as, ld) has a specific responsibility
+\item \textbf{Symbol Resolution}: Linker matches references to definitions
+\item \textbf{Driver Orchestration}: gcc coordinates all tools automatically
+\end{itemize}

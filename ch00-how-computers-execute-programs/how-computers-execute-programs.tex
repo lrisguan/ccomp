@@ -1,50 +1,681 @@
 \chapter{How Computers Execute Programs}
 
-\section{Purpose}
-Establish the CPU and memory execution model that motivates later compilation details.
+\section{Introduction}
 
-\section{Outline}
+Before diving into the intricacies of C compilation, we need to understand what happens \emph{after} compilation---when your program actually runs on a physical processor. This chapter establishes the fundamental execution model of modern computers: how CPUs execute instructions, how memory is organized, and how function calls work at the hardware level.
+
+Why start here? Because understanding the target execution model explains \textbf{why} compilers make the decisions they do. Every optimization, every register allocation, and every function call convention exists to serve the underlying hardware architecture.
+
+\section{The CPU Execution Model}
+
+\subsection{What is a CPU?}
+
+A Central Processing Unit (CPU) is a state machine that repeatedly fetches, decodes, and executes instructions. At its core, a CPU has:
+
 \begin{enumerate}
-  \item CPU execution model and architectural state
-  \item Instruction cycle: fetch, decode, execute
-  \item Registers and register file roles
-  \item Memory model and addressing
-  \item Stack and function call mechanics
-  \item Calling conventions overview
-  \item Transition to ABI discussion
+  \item \textbf{Registers}: Fast storage locations within the CPU
+  \item \textbf{Arithmetic Logic Unit (ALU)}: Performs mathematical and logical operations
+  \item \textbf{Control Unit}: Orchestrates the instruction cycle
+  \item \textbf{Buses}: Connect the CPU to memory and other components
 \end{enumerate}
 
-\section{Content Plan}
+The CPU maintains a piece of architectural state that gets updated with each instruction execution. Think of this state as the CPU's ``working memory''---everything it needs to know about the current program's execution.
+
+\subsection{The Instruction Cycle}
+
+The CPU operates through a continuous loop called the \textbf{instruction cycle} (also known as the fetch-decode-execute cycle):
+
+\begin{verbatim}
+┌─────────────────────────────────────────────────────────────┐
+│                    Instruction Cycle                        │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  ┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐   │
+│  │  FETCH  │ -> │ DECODE  │ -> │ EXECUTE │ -> │  WRITE  │   │
+│  └─────────┘    └─────────┘    └─────────┘    └─────────┘   │
+│       │                              │                      │
+│       └──────────────────────────────┘                      │
+│              Update Program Counter                         │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+\end{verbatim}
+
+Let's break down each stage:
+
+\subsubsection{Fetch}
+The CPU reads the next instruction from memory at the address stored in the \textbf{Program Counter (PC)} register (also called the Instruction Pointer or IP). After fetching, the PC is incremented to point to the next instruction.
+
+\subsubsection{Decode}
+The CPU interprets the fetched bits to determine:
 \begin{itemize}
-  \item CPU execution model: instructions update architectural state and memory.
-  \item Instruction cycle: control flow, sequencing, and side effects.
-  \item Registers: general purpose, PC, SP, flags, callee vs caller saved.
-  \item Memory model: byte addressing, alignment, endianness.
-  \item Stack mechanics: frame layout, prologue and epilogue, return address.
-  \item Calling conventions: argument passing, return values, stack cleanup.
-  \item ABI bridge: why a stable contract is required.
+  \item What operation to perform (add, subtract, jump, etc.)
+  \item Which registers to use
+  \item What memory addresses to access (if any)
 \end{itemize}
 
-\section{Key Terms}
+\subsubsection{Execute}
+The CPU actually performs the operation:
 \begin{itemize}
-  \item instruction pointer
-  \item stack frame
-  \item calling convention
-  \item ABI
+  \item Arithmetic calculations in the ALU
+  \item Memory reads or writes
+  \item Conditional checks that affect control flow
 \end{itemize}
 
-\section{Diagrams Planned}
-\begin{figure}[h]
-  \centering
-  \fbox{\parbox{0.9\linewidth}{CPU state and instruction cycle diagram placeholder.}}
-  \caption{Planned CPU state and instruction cycle diagram.}
-\end{figure}
+\subsubsection{Writeback (optional)}
+Many instructions write results back to registers or memory, updating the architectural state.
 
-\begin{figure}[h]
-  \centering
-  \fbox{\parbox{0.9\linewidth}{Stack frame layout diagram placeholder.}}
-  \caption{Planned stack frame layout diagram.}
-\end{figure}
+\subsection{Architectural State}
 
-\section{Experiment}
-See how-computers-execute-programs-exp/how-computers-execute-programs-exp.tex in this chapter.
+The \textbf{architectural state} is the set of all registers and flags that define the current execution context:
+
+\begin{verbatim}
+┌─────────────────────────────────────────────────────────────┐
+│                   Architectural State                       │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  General Purpose Registers:                                 │
+│  ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐            │
+│  │ RAX │ │ RBX │ │ RCX │ │ RDX │ │ RSI │ │ RDI │  ...       │
+│  └─────┘ └─────┘ └─────┘ └─────┘ └─────┘ └─────┘            │
+│                                                             │
+│  Special Registers:                                         │
+│  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐            │
+│  │     RIP     │ │     RSP     │ │     RBP     │            │
+│  │ (Instr Ptr) │ │ (Stack Ptr) │ │(Frame Ptr)  │            │
+│  └─────────────┘ └─────────────┘ └─────────────┘            │
+│                                                             │
+│  Status Flags:                                              │
+│  ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐            │
+│  │  CF │ │  ZF │ │  SF │ │  OF │ │  PF │ │  AF │            │
+│  └─────┘ └─────┘ └─────┘ └─────┘ └─────┘ └─────┘            │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+\end{verbatim}
+
+This state is crucial because:
+\begin{itemize}
+  \item \textbf{Function calls} preserve parts of this state
+  \item \textbf{Context switches} save and restore this state
+  \item \textbf{Debuggers} inspect this state to show program behavior
+\end{itemize}
+
+\section{Registers: The CPU's Working Memory}
+
+Registers are the fastest storage available in a computer. They're built directly into the CPU hardware and can be accessed in a single clock cycle. Modern CPUs have two main categories of registers:
+
+\subsection{General-Purpose Registers (GPRs)}
+
+Despite the name, these registers aren't truly ``general purpose''---conventions and hardware features give each register specific roles.
+
+On x86-64 (the architecture used by most modern desktop and server computers):
+
+\begin{center}
+\begin{tabular}{|l|l|l|}
+\hline
+\textbf{Register} & \textbf{Name} & \textbf{Special Use} \\ \hline
+RAX & Accumulator & Return values for functions \\ \hline
+RBX & Base & Callee-saved register \\ \hline
+RCX & Counter & Used for loops and string operations \\ \hline
+RDX & Data & Used for multiplication/division \\ \hline
+RSI & Source Index & Source for string operations \\ \hline
+RDI & Destination Index & Destination for string operations \\ \hline
+RSP & Stack Pointer & Points to top of stack \\ \hline
+RBP & Base Pointer & Points to current stack frame \\ \hline
+R8-R15 & Extended registers & Additional general-purpose registers \\ \hline
+\end{tabular}
+\end{center}
+
+\begin{warning}
+  Historical Note: The ``R'' prefix denotes 64-bit registers in x86-64. Originally, these were 16-bit registers (AX, BX, etc.), then extended to 32-bit (EAX, EBX), and finally to 64-bit (RAX, RBX). You can still access the lower portions of these registers: RAX contains EAX, which contains AX, which contains AH (high byte) and AL (low byte).
+\end{warning}
+
+\subsection{Special-Purpose Registers}
+
+Some registers have dedicated functions:
+
+\textbf{Program Counter (RIP on x86-64)}
+\begin{itemize}
+  \item Holds the memory address of the \emph{next} instruction to execute
+  \item Automatically updated after most instructions
+  \item Can be explicitly modified by jump, call, and return instructions
+\end{itemize}
+
+\textbf{Stack Pointer (RSP on x86-64)}
+\begin{itemize}
+  \item Points to the top of the stack (specifically, the lowest address in the current stack frame)
+  \item Grows downward (toward lower addresses) on most architectures
+  \item Crucial for function calls and local variable storage
+\end{itemize}
+
+\textbf{Flags Register (RFLAGS)}
+\begin{itemize}
+  \item Contains individual bits (flags) set by arithmetic operations
+  \item Key flags include:
+    \begin{itemize}
+      \item \textbf{ZF (Zero Flag)}: Set if the result was zero
+      \item \textbf{SF (Sign Flag)}: Set if the result was negative (in two's complement)
+      \item \textbf{CF (Carry Flag)}: Set if an operation overflowed its destination
+      \item \textbf{OF (Overflow Flag)}: Set if signed overflow occurred
+    \end{itemize}
+\end{itemize}
+
+These flags enable conditional branching (like \texttt{if} statements and loops).
+
+\subsection{Caller-Saved vs. Callee-Saved Registers}
+
+One of the most important conventions in modern programming is the division of registers into \textbf{caller-saved} and \textbf{callee-saved} registers. This convention makes function calls efficient.
+
+\textbf{Caller-saved registers} (also called volatile registers):
+\begin{itemize}
+  \item Can be overwritten by a called function
+  \item If the caller needs to preserve a value, it must save it before calling
+  \item On x86-64: RAX, RCX, RDX, RSI, RDI, R8-R11
+\end{itemize}
+
+\textbf{Callee-saved registers} (also called non-volatile registers):
+\begin{itemize}
+  \item Must be preserved by functions that modify them
+  \item If a function wants to use these registers, it must save the original value and restore it before returning
+  \item On x86-64: RBX, RBP, R12-R15
+\end{itemize}
+
+\begin{warning}
+  Why this matters: This convention is part of the \textbf{calling convention} or \textbf{ABI} (Application Binary Interface). When a C compiler generates code, it knows which registers it can use freely and which it must preserve. Chapter 9 covers ABIs in detail.
+\end{warning}
+
+\section{The Memory Model}
+
+\subsection{Memory as a Giant Byte Array}
+
+From the CPU's perspective, memory is a contiguous array of bytes, each with a unique address. On a 64-bit system, addresses range from 0 to \(2^{64}-1\) (though in practice, only about 48 bits are used currently).
+
+\begin{verbatim}
+Address  Contents
+┌─────────────────────────────────────────────┐
+│ 0x0000...0000  │ ?                          │
+│ 0x0000...0001  │ ?                          │
+│ 0x0000...0002  │ ?                          │
+│ 0x0000...0003  │ ?                          │
+│     ...        │                            │
+│ 0x7FFF...0000  │ (often stack start)        │
+│     ...        │                            │
+└─────────────────────────────────────────────┘
+\end{verbatim}
+
+\textbf{Key properties:}
+
+\begin{enumerate}
+  \item \textbf{Byte-addressability}: Each byte has a unique address
+  \item \textbf{Word size}: The CPU typically accesses memory in chunks (e.g., 4 bytes at a time on a 32-bit system, 8 bytes on 64-bit)
+  \item \textbf{Alignment}: Accessing multi-byte values from addresses that are multiples of their size is faster (and sometimes required)
+\end{enumerate}
+
+\subsection{Endianness}
+
+When a multi-byte value is stored in memory, there's a choice: which byte goes at the lowest address? This is called \textbf{endianness}.
+
+\textbf{Little-endian} (used by x86 and x86-64):
+\begin{itemize}
+  \item The least significant byte is stored at the lowest address
+  \item Example: 0x12345678 stored as \texttt{78 56 34 12}
+\end{itemize}
+
+\begin{verbatim}
+Address:   0x1000  0x1001  0x1002  0x1003
+Content:    0x78    0x56    0x34    0x12
+                              ↑
+                          Least significant byte
+\end{verbatim}
+
+\textbf{Big-endian} (used by some network protocols and older architectures):
+\begin{itemize}
+  \item The most significant byte is stored at the lowest address
+  \item Example: 0x12345678 stored as \texttt{12 34 56 78}
+\end{itemize}
+
+\begin{warning}
+  Practical Impact: Endianness matters when:
+  \begin{itemize}
+    \item Reading binary files created on different architectures
+    \item Implementing network protocols (network byte order is big-endian)
+    \item Debugging memory dumps
+  \end{itemize}
+\end{warning}
+
+\subsection{Virtual Memory}
+
+Modern operating systems use \textbf{virtual memory}, which gives each process the illusion of having its own private address space. The CPU's Memory Management Unit (MMU) translates virtual addresses to physical addresses transparently.
+
+\textbf{Benefits:}
+\begin{itemize}
+  \item \textbf{Isolation}: Processes can't access each other's memory
+  \item \textbf{Protection}: Pages can be marked read-only or execute-only
+  \item \textbf{Efficiency}: Only loaded portions of a program need to be in physical memory
+  \item \textbf{Simplicity}: Each program can use the same address range (e.g., stack always starting at a high address)
+\end{itemize}
+
+We'll explore virtual memory in depth in Chapter 10.
+
+\section{The Stack and Function Calls}
+
+\subsection{What is the Stack?}
+
+The \textbf{stack} is a region of memory used for:
+\begin{itemize}
+  \item Function call frames
+  \item Local variables
+  \item Return addresses
+  \item Temporary storage
+\end{itemize}
+
+The stack grows \textbf{downward} (toward lower addresses), and the stack pointer (RSP) always points to the \emph{lowest} used address (the ``top'' of the stack).
+
+\begin{verbatim}
+     High Addresses
+      ┌───────────┐
+      │           │  ↑
+      │  Stack    │  │ Grows downward
+      │           │  │ (toward lower addresses)
+      │   ...     │  │
+      │           │  ↓
+      └───────────┘
+     Low Addresses
+\end{verbatim}
+
+\subsection{Stack Frames}
+
+Each function call creates a \textbf{stack frame} (also called an activation record). The frame contains:
+
+\begin{verbatim}
+┌────────────────────────────────────────────────────────┐
+│                 Stack Frame Structure                  │
+├────────────────────────────────────────────────────────┤
+│                                                        │
+│  Previous Frame    ┌───────────────────────────────┐   │
+│                    │ Saved RBP (old frame pointer) │   │ ← RBP points here
+│  Current Frame     ├───────────────────────────────┤   │
+│                    │ Local Variables               │   │
+│                    │                               │   │
+│                    ├───────────────────────────────┤   │
+│                    │ Saved Registers (if needed)   │   │
+│                    ├───────────────────────────────┤   │
+│                    │ Return Address                │   │
+│                    ├───────────────────────────────┤   │
+│                    │ Arguments (if stack-passed)   │   │ ← RSP points here
+│                    └───────────────────────────────┘   │
+│                                                        │
+└────────────────────────────────────────────────────────┘
+\end{verbatim}
+
+\textbf{The frame pointer (RBP)} serves as a stable reference point within a function's stack frame. While some optimizations omit the frame pointer (using RSP as a general-purpose register instead), it's extremely useful for debugging.
+
+\subsection{Function Prologue and Epilogue}
+
+Every function has a standard structure:
+
+\textbf{Prologue} (executed when entering the function):
+\begin{lstlisting}[language=nasm,basicstyle=\ttfamily\small]
+push rbp           ; Save caller's frame pointer
+mov rbp, rsp       ; Establish new frame pointer
+sub rsp, N         ; Allocate space for local variables (N bytes)
+\end{lstlisting}
+
+\textbf{Epilogue} (executed when exiting the function):
+\begin{lstlisting}[language=nasm,basicstyle=\ttfamily\small]
+mov rsp, rbp       ; Deallocate local variables (restore stack pointer)
+pop rbp            ; Restore caller's frame pointer
+ret                ; Return to caller (uses saved return address)
+\end{lstlisting}
+
+Let's trace what happens with this C code:
+
+\begin{lstlisting}[language=C]
+int add(int a, int b) {
+    int result = a + b;
+    return result;
+}
+
+int main(void) {
+    return add(5, 3);
+}
+\end{lstlisting}
+
+When \texttt{main} calls \texttt{add}:
+
+\begin{enumerate}
+  \item \textbf{Before call}: Arguments are prepared (in registers or on stack)
+  \item \textbf{Call instruction}: The \texttt{call} instruction pushes the \textbf{return address} onto the stack and jumps to \texttt{add}
+  \item \textbf{Prologue in \texttt{add}}: Sets up the new stack frame
+  \item \textbf{Function body}: Executes the addition
+  \item \textbf{Epilogue in \texttt{add}}: Tears down the stack frame
+  \item \textbf{Return}: The \texttt{ret} instruction pops the return address and resumes execution in \texttt{main}
+\end{enumerate}
+
+\subsection{Detailed Stack Growth Example}
+
+Let's visualize the complete stack behavior:
+
+\begin{verbatim}
+State before calling add(5, 3):
+┌─────────────────────────────────┐
+│ ... previous frames ...         │
+├─────────────────────────────────┤
+│ main's stack frame              │
+│ - local variables               │
+│ - saved RBP                     │ ← RBP (main's frame pointer)
+│ - return address to OS/runtime  │
+│ - arguments to main             │ ← RSP
+└─────────────────────────────────┘
+
+State after call to add (before prologue):
+┌─────────────────────────────────┐
+│ ... previous frames ...         │
+├─────────────────────────────────┤
+│ main's stack frame              │
+│ - local variables               │
+│ - saved RBP                     │ ← RBP (main's frame pointer)
+│ - return address to OS/runtime  │
+│ - arguments to main             │
+├─────────────────────────────────┤
+│ add's stack frame (incomplete)  │
+│ - return address (back to main) │ ← RSP
+└─────────────────────────────────┘
+
+State after add's prologue:
+┌─────────────────────────────────┐
+│ ... previous frames ...         │
+├─────────────────────────────────┤
+│ main's stack frame              │
+│ - local variables               │
+│ - saved RBP                     │ ← old RBP value
+│ - return address to OS/runtime  │
+│ - arguments to main             │
+├─────────────────────────────────┤
+│ add's stack frame               │
+│ - saved RBP (main's RBP)        │ ← RBP (add's frame pointer)
+│ - return address (back to main) │
+│ - arguments (5, 3)              │ ← RSP
+└─────────────────────────────────┘
+
+State after allocating local variables:
+┌─────────────────────────────────┐
+│ ... previous frames ...         │
+├─────────────────────────────────┤
+│ main's stack frame              │
+│ - local variables               │
+│ - saved RBP                     │
+│ - return address to OS/runtime  │
+│ - arguments to main             │
+├─────────────────────────────────┤
+│ add's stack frame               │
+│ - saved RBP                     │ ← RBP
+│ - return address                │
+│ - arguments (5, 3)              │
+│ - local var: result (4 bytes)   │ ← RSP
+└─────────────────────────────────┘
+\end{verbatim}
+
+\section{Calling Conventions}
+
+\subsection{What is a Calling Convention?}
+
+A \textbf{calling convention} is a set of rules that defines how functions call each other. It specifies:
+
+\begin{enumerate}
+  \item \textbf{Argument passing}: Where to put function arguments (registers vs. stack)
+  \item \textbf{Return values}: Where to place return values
+  \item \textbf{Stack cleanup}: Who cleans up arguments from the stack (caller or callee)
+  \item \textbf{Register preservation}: Which registers must be preserved across calls
+  \item \textbf{Name mangling} (in some languages): How to encode function names with type information
+\end{enumerate}
+
+\begin{definition}
+  Critical Insight: Without calling conventions, code compiled by different compilers couldn't work together. The calling convention is the \textbf{contract} that allows separate compilation to work.
+\end{definition}
+
+\subsection{The System V AMD64 ABI (Linux/Unix)}
+
+The most common calling convention for x86-64 on Unix-like systems is the \textbf{System V AMD64 ABI}. Here's how it works:
+
+\textbf{Argument Passing:}
+\begin{itemize}
+  \item First 6 integer/pointer arguments: RDI, RSI, RDX, RCX, R8, R9 (in order)
+  \item First 8 floating-point arguments: XMM0-XMM7
+  \item Additional arguments: Passed on the stack
+\end{itemize}
+
+\textbf{Return Values:}
+\begin{itemize}
+  \item Integer/pointer returns: RAX
+  \item Floating-point returns: XMM0
+  \item Large structs: Hidden pointer parameter (address where to store result)
+\end{itemize}
+
+\textbf{Register Preservation:}
+\begin{itemize}
+  \item Callee-saved: RBX, RBP, R12-R15
+  \item Caller-saved: RAX, RCX, RDX, RSI, RDI, R8-R11
+\end{itemize}
+
+\textbf{Stack Alignment:}
+\begin{itemize}
+  \item The stack must be 16-byte aligned before any \texttt{call} instruction
+\end{itemize}
+
+Let's see an example:
+
+\begin{lstlisting}[language=C]
+long compute(long a, long b, long c, long d, long e, long f, long g) {
+    return a + b + c + d + e + f + g;
+}
+
+int main(void) {
+    return (int)compute(1, 2, 3, 4, 5, 6, 7);
+}
+\end{lstlisting}
+
+The arguments would be passed as follows:
+\begin{itemize}
+  \item \texttt{a} (1) → RDI
+  \item \texttt{b} (2) → RSI
+  \item \texttt{c} (3) → RDX
+  \item \texttt{d} (4) → RCX
+  \item \texttt{e} (5) → R8
+  \item \texttt{f} (6) → R9
+  \item \texttt{g} (7) → On the stack
+\end{itemize}
+
+\subsection{The Microsoft x64 Calling Convention (Windows)}
+
+Windows uses a different calling convention:
+
+\textbf{Argument Passing:}
+\begin{itemize}
+  \item First 4 arguments: RCX, RDX, R8, R9 (in order)
+  \item Additional arguments: Passed on the stack
+  \item For floating-point: XMM0-XMM3 for first 4 arguments
+\end{itemize}
+
+\textbf{Key Differences from System V:}
+\begin{itemize}
+  \item Different registers for arguments
+  \item Stack space is always allocated for register arguments (shadow space)
+  \item Different register preservation rules
+\end{itemize}
+
+\begin{warning}
+  Practical Note: This is why you can't always link object files between Windows and Linux, even on the same architecture. The calling conventions are incompatible.
+\end{warning}
+
+\section{Control Flow and Branch Prediction}
+
+\subsection{Conditional Jumps}
+
+The CPU executes instructions sequentially, but conditional jumps (branches) allow programs to make decisions. Conditional jumps depend on the flags register:
+
+\begin{lstlisting}[language=nasm,basicstyle=\ttfamily\small]
+cmp rax, rbx      ; Compare RAX and RBX (sets flags)
+je  target        ; Jump if equal (ZF == 1)
+jne target        ; Jump if not equal (ZF == 0)
+jg  target        ; Jump if greater (signed comparison)
+jl  target        ; Jump if less (signed comparison)
+ja  target        ; Jump if above (unsigned comparison)
+jb  target        ; Jump if below (unsigned comparison)
+\end{lstlisting}
+
+Modern CPUs use \textbf{branch prediction} to guess which way a branch will go and speculatively execute those instructions. Correct predictions improve performance; mispredictions cause the pipeline to be flushed.
+
+\subsection{Loops}
+
+Loops are implemented using conditional jumps:
+
+\begin{lstlisting}[language=C]
+for (int i = 0; i < 10; i++) {
+    // loop body
+}
+\end{lstlisting}
+
+Might compile to:
+
+\begin{lstlisting}[language=nasm,basicstyle=\ttfamily\small]
+    xor eax, eax          ; i = 0
+.loop:
+    cmp eax, 10           ; compare i with 10
+    jge .end              ; if i >= 10, exit loop
+    ; loop body here
+    inc eax               ; i++
+    jmp .loop             ; repeat
+.end:
+\end{lstlisting}
+
+\section{Putting It All Together: A Complete Example}
+
+Let's trace through a complete program execution to see all these concepts in action:
+
+\begin{lstlisting}[language=C]
+int multiply_by_two(int x) {
+    return x * 2;
+}
+
+int add_and_multiply(int a, int b) {
+    int sum = a + b;
+    return multiply_by_two(sum);
+}
+
+int main(void) {
+    int result = add_and_multiply(5, 7);
+    return result == 24 ? 0 : 1;
+}
+\end{lstlisting}
+
+Here's what happens when this program runs:
+
+\begin{enumerate}
+  \item \textbf{Program startup}: The OS loader sets up the initial stack and calls \texttt{main}
+
+  \item \textbf{In \texttt{main}}:
+    \begin{itemize}
+      \item Arguments to \texttt{add\_and\_multiply} are prepared: RDI = 5, RSI = 7
+      \item The \texttt{call} instruction pushes the return address onto the stack
+      \item Execution jumps to \texttt{add\_and\_multiply}
+    \end{itemize}
+
+  \item \textbf{In \texttt{add\_and\_multiply}}:
+    \begin{itemize}
+      \item Prologue: Saves RBP, sets up new frame
+      \item Adds RDI and RSI: \texttt{lea eax, [rdi + rsi]} (result in EAX)
+      \item Prepares argument to \texttt{multiply\_by\_two}: EDI = EAX (the sum)
+      \item The \texttt{call} instruction pushes return address, jumps to \texttt{multiply\_by\_two}
+    \end{itemize}
+
+  \item \textbf{In \texttt{multiply\_by\_two}}:
+    \begin{itemize}
+      \item Prologue: Saves RBP, sets up new frame
+      \item Multiplies by 2: \texttt{lea eax, [rdi + rdi]} (efficient way to multiply by 2)
+      \item Epilogue: Restores RBP
+      \item Return: Pops return address, returns to \texttt{add\_and\_multiply}
+    \end{itemize}
+
+  \item \textbf{Back in \texttt{add\_and\_multiply}}:
+    \begin{itemize}
+      \item The return value (24) is now in EAX
+      \item Epilogue: Restores RBP
+      \item Return: Returns to \texttt{main}
+    \end{itemize}
+
+  \item \textbf{Back in \texttt{main}}:
+    \begin{itemize}
+      \item Compares EAX (24) with 24: \texttt{cmp eax, 24}
+      \item Sets flags accordingly (ZF will be set because they're equal)
+      \item Conditional move: \texttt{sete al} (AL = 1 if equal, 0 if not)
+      \item Zero-extends: \texttt{movzx eax, al}
+      \item Returns this value as the program's exit status
+    \end{itemize}
+\end{enumerate}
+
+\section{Common Pitfalls}
+
+\subsection{Pitfall 1: Stack Overflow}
+
+Each function call consumes stack space. Deep recursion or large local arrays can exhaust the stack:
+
+\begin{lstlisting}[language=C]
+// Dangerous: Recursion with no base case
+void infinite_recursion(void) {
+    char buffer[1024];  // Each call uses 1KB+ of stack
+    infinite_recursion();
+}
+\end{lstlisting}
+
+When the stack is exhausted, the program crashes with a \textbf{segmentation fault}.
+
+\subsection{Pitfall 2: Misaligned Accesses}
+
+Accessing multi-byte values from misaligned addresses can hurt performance or cause crashes:
+
+\begin{lstlisting}[language=C]
+// Potentially slow or crashing on some architectures
+void misaligned_access(void* p) {
+    int* ip = (int*)((char*)p + 1);  // Misaligned!
+    *ip = 42;  // May be slow or crash
+}
+\end{lstlisting}
+
+\subsection{Pitfall 3: Register Starvation}
+
+When a function needs more registers than available, the compiler must spill some to memory (the stack), which hurts performance:
+
+\begin{lstlisting}[language=C]
+// Uses many variables - may cause register spills
+int complex_calc(int a, int b, int c, int d, int e,
+                 int f, int g, int h, int i, int j) {
+    int t1 = a + b;
+    int t2 = c * d;
+    int t3 = e - f;
+    int t4 = g / h;
+    int t5 = i << 2;
+    return t1 + t2 + t3 + t4 + t5;
+}
+\end{lstlisting}
+
+\section{Key Takeaways}
+
+\begin{enumerate}
+  \item \textbf{The CPU is a state machine}: It fetches, decodes, and executes instructions in a continuous loop, updating architectural state with each instruction.
+
+  \item \textbf{Registers are fast but limited}: General-purpose registers provide the fastest storage, but there are only a handful. Callee-saved vs. caller-saved conventions enable efficient function calls.
+
+  \item \textbf{Memory is byte-addressable}: Each byte has a unique address, and multi-byte values are stored according to the system's endianness (little-endian on x86-64).
+
+  \item \textbf{The stack enables function calls}: Each function call creates a stack frame containing local variables, saved registers, and return addresses. The stack grows downward, managed by the stack pointer (RSP) and frame pointer (RBP).
+
+  \item \textbf{Calling conventions are contracts}: They define how functions call each other---argument passing, return values, stack cleanup, and register preservation. The System V AMD64 ABI is the standard on Linux/Unix x86-64 systems.
+
+  \item \textbf{Control flow uses jumps and flags}: Conditional jumps depend on status flags set by comparison and arithmetic operations, enabling \texttt{if} statements and loops.
+
+  \item \textbf{Understanding execution explains compilation}: The hardware execution model drives compiler decisions. Every optimization targets some aspect of the underlying architecture.
+\end{enumerate}
+
+\section{Looking Ahead}
+
+Now that we understand how programs execute at the hardware level, we can explore how C source code gets transformed into machine instructions. In Chapter 1, we'll examine the complete compilation pipeline---from source code to executable program.

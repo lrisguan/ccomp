@@ -1,48 +1,508 @@
 \chapter{ELF Format Deep Dive}
 
-\section{Purpose}
-Provide a detailed, field-by-field understanding of the ELF format.
+\section{Introduction}
 
-\section{Outline}
+The \textbf{Executable and Linkable Format (ELF)} is the standard binary format on Unix-like systems. Whether you're dealing with object files, executables, shared libraries, or core dumps, they all use ELF. Understanding ELF gives you the power to analyze binaries, debug linking problems, and understand how programs are loaded.
+
+In this chapter, we'll dissect ELF files byte by byte, exploring every header, table, and section in detail.
+
+\section{ELF Overview}
+
+\subsection{What is ELF?}
+
+ELF is a flexible binary format that supports:
+\begin{itemize}
+    \item \textbf{Executables}: Programs ready to run
+    \item \textbf{Object files}: Intermediate compilation outputs
+    \item \textbf{Shared libraries}: Dynamically loaded code (\texttt{.so} files)
+    \item \textbf{Core dumps}: Memory snapshots for debugging
+\end{itemize}
+
+\subsection{Two Views of ELF}
+
+ELF files can be viewed from two perspectives:
+
+\textbf{Linking View} (used by linkers):
+\begin{itemize}
+    \item Sections: \texttt{.text}, \texttt{.data}, \texttt{.bss}, \texttt{.symtab}, etc.
+    \item Section header table describes all sections
+\end{itemize}
+
+\textbf{Execution View} (used by the loader):
+\begin{itemize}
+    \item Segments: Groups of sections loaded into memory
+    \item Program header table describes all segments
+\end{itemize}
+
+\section{The ELF Header}
+
+\subsection{ELF Header Structure}
+
+The ELF header sits at the very beginning of the file and contains essential identification information:
+
+\begin{lstlisting}[language=C]
+// From /usr/include/elf.h
+#define EI_NIDENT 16
+
+typedef struct {
+    unsigned char e_ident[EI_NIDENT];  // Identification bytes
+    uint16_t      e_type;              // Object file type
+    uint16_t      e_machine;           // Architecture
+    uint32_t      e_version;           // Object file version
+    uint64_t      e_entry;             // Entry point address
+    uint64_t      e_phoff;             // Program header table offset
+    uint64_t      e_shoff;             // Section header table offset
+    uint32_t      e_flags;             // Processor-specific flags
+    uint16_t      e_ehsize;            // ELF header size
+    uint16_t      e_phentsize;         // Program header table entry size
+    uint16_t      e_phnum;             // Program header table entry count
+    uint16_t      e_shentsize;         // Section header table entry size
+    uint16_t      e_shnum;             // Section header table entry count
+    uint16_t      e_shstrndx;          // Section name string table index
+} Elf64_Ehdr;
+\end{lstlisting}
+
+\subsection{The e\_ident Array (Magic Bytes)}
+
+The first 16 bytes identify the file:
+
+\begin{tabular}{|c|c|l|}
+\hline
+\textbf{Offset} & \textbf{Size} & \textbf{Description} \\
+\hline
+0 & 4 & Magic number: \texttt{0x7f 'E' 'L' 'F'} \\
+\hline
+4 & 1 & 32-bit (1) or 64-bit (2) \\
+\hline
+5 & 1 & Endianness: little (1) or big (2) \\
+\hline
+6 & 1 & ELF version (always 1) \\
+\hline
+7 & 1 & OS/ABI identification \\
+\hline
+8-15 & 8 & Padding (unused) \\
+\hline
+\end{tabular}
+
+\textbf{Magic Number}: The first four bytes are always \texttt{0x7f ELF} (or \texttt{7f 45 4c 46} in hex).
+
+\textbf{Class (32-bit vs 64-bit)}:
+\begin{verbatim}
+ELFCLASS32 = 1  // 32-bit architecture
+ELFCLASS64 = 2  // 64-bit architecture
+\end{verbatim}
+
+\subsection{e\_type: File Type}
+
+\begin{tabular}{|c|l|l|}
+\hline
+\textbf{Value} & \textbf{Name} & \textbf{Description} \\
+\hline
+0 & ET\_NONE & No file type \\
+\hline
+1 & ET\_REL & Relocatable (object file) \\
+\hline
+2 & ET\_EXEC & Executable \\
+\hline
+3 & ET\_DYN & Shared object (library or PIE executable) \\
+\hline
+4 & ET\_CORE & Core dump \\
+\hline
+\end{tabular}
+
+\subsection{e\_machine: Architecture}
+
+\begin{tabular}{|c|l|l|}
+\hline
+\textbf{Value} & \textbf{Name} & \textbf{Architecture} \\
+\hline
+3 & EM\_386 & x86 (32-bit) \\
+\hline
+62 & EM\_X86\_64 & x86-64 \\
+\hline
+40 & EM\_ARM & ARM \\
+\hline
+183 & EM\_AARCH64 & ARM64 \\
+\hline
+243 & EM\_RISCV & RISC-V \\
+\hline
+\end{tabular}
+
+\subsection{Viewing the ELF Header}
+
+\begin{lstlisting}[language=bash]
+# View the ELF header
+readelf -h program
+
+# Or just the identification
+file program
+\end{lstlisting}
+
+\section{Section Headers}
+
+\subsection{Section Header Structure}
+
+Sections contain the actual code and data. The section header table is an array of section headers:
+
+\begin{lstlisting}[language=C]
+typedef struct {
+    uint32_t sh_name;       // Section name (index into string table)
+    uint32_t sh_type;       // Section type
+    uint64_t sh_flags;      // Section flags
+    uint64_t sh_addr;       // Virtual address in memory
+    uint64_t sh_offset;     // Offset in file
+    uint64_t sh_size;       // Size in bytes
+    uint32_t sh_link;       // Link to another section
+    uint32_t sh_info;       // Additional info
+    uint64_t sh_addralign;  // Alignment
+    uint64_t sh_entsize;    // Entry size (if section holds table)
+} Elf64_Shdr;
+\end{lstlisting}
+
+\subsection{Common Section Types (sh\_type)}
+
+\begin{tabular}{|c|l|l|}
+\hline
+\textbf{Value} & \textbf{Name} & \textbf{Description} \\
+\hline
+0 & SHT\_NULL & Inactive header \\
+\hline
+1 & SHT\_PROGBITS & Program-defined contents (code, data) \\
+\hline
+2 & SHT\_SYMTAB & Symbol table \\
+\hline
+3 & SHT\_STRTAB & String table \\
+\hline
+4 & SHT\_RELA & Relocation entries with addends \\
+\hline
+5 & SHT\_HASH & Symbol hash table \\
+\hline
+6 & SHT\_DYNAMIC & Dynamic linking info \\
+\hline
+8 & SHT\_NOBITS & No space in file (BSS) \\
+\hline
+\end{tabular}
+
+\subsection{Section Flags (sh\_flags)}
+
+\begin{tabular}{|l|c|l|}
+\hline
+\textbf{Flag} & \textbf{Value} & \textbf{Description} \\
+\hline
+SHF\_WRITE & 0x1 & Writable \\
+\hline
+SHF\_ALLOC & 0x2 & Occupies memory during execution \\
+\hline
+SHF\_EXECINSTR & 0x4 & Executable code \\
+\hline
+\end{tabular}
+
+\subsection{Standard Sections}
+
+\begin{verbatim}
+┌─────────────────────────────────────────────────────────────────────┐
+│                    Common ELF Sections                              │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  Section      Flags        Content                                  │
+│  ───────      ─────        ───────                                  │
+│  .text        AX           Executable code                          │
+│  .rodata      A            Read-only data (const, strings)          │
+│  .data        WA           Initialized writable data                │
+│  .bss         WA           Uninitialized data (zero-filled)         │
+│  .symtab      -            Symbol table                             │
+│  .strtab      -            String table for symbol names            │
+│  .shstrtab    -            Section name string table                │
+│  .rela.text   -            Relocations for .text                    │
+│  .dynamic     WA           Dynamic linking information              │
+│  .dynsym      A            Dynamic symbol table                     │
+│  .got         WA           Global Offset Table                      │
+│  .plt         AX           Procedure Linkage Table                  │
+│  .eh_frame    A            Exception handling info                  │
+│  .debug_*     -            DWARF debug information                  │
+│                                                                     │
+│  A = SHF_ALLOC, W = SHF_WRITE, X = SHF_EXECINSTR                    │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+\end{verbatim}
+
+\subsection{Viewing Sections}
+
+\begin{lstlisting}[language=bash]
+# List all sections
+readelf -S program
+
+# Or with objdump
+objdump -h program
+
+# View section contents (hex dump)
+objdump -s -j .rodata program
+\end{lstlisting}
+
+\section{Program Headers}
+
+\subsection{Program Header Structure}
+
+Program headers describe \textbf{segments}—contiguous chunks of the file that the loader maps into memory:
+
+\begin{lstlisting}[language=C]
+typedef struct {
+    uint32_t p_type;      // Segment type
+    uint32_t p_flags;     // Segment flags
+    uint64_t p_offset;    // Offset in file
+    uint64_t p_vaddr;     // Virtual address in memory
+    uint64_t p_paddr;     // Physical address (unused)
+    uint64_t p_filesz;    // Size in file
+    uint64_t p_memsz;     // Size in memory
+    uint64_t p_align;     // Alignment
+} Elf64_Phdr;
+\end{lstlisting}
+
+\subsection{Segment Types (p\_type)}
+
+\begin{tabular}{|c|l|l|}
+\hline
+\textbf{Value} & \textbf{Name} & \textbf{Description} \\
+\hline
+0 & PT\_NULL & Inactive \\
+\hline
+1 & PT\_LOAD & Loadable segment \\
+\hline
+2 & PT\_DYNAMIC & Dynamic linking info \\
+\hline
+3 & PT\_INTERP & Interpreter path \\
+\hline
+6 & PT\_PHDR & Program header table itself \\
+\hline
+0x6474e551 & PT\_GNU\_STACK & Stack executability \\
+\hline
+0x6474e552 & PT\_GNU\_RELRO & Read-only after relocation \\
+\hline
+\end{tabular}
+
+\subsection{Segment Flags (p\_flags)}
+
+\begin{tabular}{|c|l|l|}
+\hline
+\textbf{Flag} & \textbf{Value} & \textbf{Description} \\
+\hline
+PF\_X & 0x1 & Executable \\
+\hline
+PF\_W & 0x2 & Writable \\
+\hline
+PF\_R & 0x4 & Readable \\
+\hline
+\end{tabular}
+
+\subsection{Key Segments}
+
+\textbf{PT\_LOAD}: The most important segment type. The loader maps these into memory:
+\begin{itemize}
+    \item \texttt{.text} usually forms one LOAD segment (RX - read+execute)
+    \item \texttt{.data} and \texttt{.bss} form another (RW - read+write)
+\end{itemize}
+
+\textbf{PT\_INTERP}: Contains the path to the dynamic linker:
+\begin{verbatim}
+/lib64/ld-linux-x86-64.so.2
+\end{verbatim}
+
+\textbf{PT\_GNU\_STACK}: Controls whether the stack is executable (security feature).
+
+\textbf{PT\_GNU\_RELRO}: Marks regions to become read-only after relocation (security feature).
+
+\subsection{Viewing Program Headers}
+
+\begin{lstlisting}[language=bash]
+# View program headers
+readelf -l program
+\end{lstlisting}
+
+\section{Symbol Tables}
+
+\subsection{Symbol Table Entry Structure}
+
+\begin{lstlisting}[language=C]
+typedef struct {
+    uint32_t st_name;   // Symbol name (string table index)
+    uint8_t  st_info;   // Type and binding
+    uint8_t  st_other;  // Visibility
+    uint16_t st_shndx;  // Section index
+    uint64_t st_value;  // Symbol value (address)
+    uint64_t st_size;   // Symbol size
+} Elf64_Sym;
+\end{lstlisting}
+
+\subsection{Symbol Binding (st\_info upper 4 bits)}
+
+\begin{tabular}{|c|l|l|}
+\hline
+\textbf{Value} & \textbf{Name} & \textbf{Description} \\
+\hline
+0 & STB\_LOCAL & Local to this file \\
+\hline
+1 & STB\_GLOBAL & Visible to all files \\
+\hline
+2 & STB\_WEAK & Like global, but lower precedence \\
+\hline
+\end{tabular}
+
+\subsection{Viewing Symbols}
+
+\begin{lstlisting}[language=bash]
+# View symbol table
+readelf -s program
+nm program
+
+# View dynamic symbols only
+readelf --dyn-syms program
+\end{lstlisting}
+
+\section{Relocations}
+
+\subsection{Relocation Entry Structure}
+
+\begin{lstlisting}[language=C]
+// Relocation with addend
+typedef struct {
+    uint64_t r_offset;   // Where to apply relocation
+    uint64_t r_info;     // Symbol index and type
+    int64_t  r_addend;   // Constant addend
+} Elf64_Rela;
+\end{lstlisting}
+
+\subsection{Common x86-64 Relocation Types}
+
+\begin{tabular}{|l|c|l|}
+\hline
+\textbf{Name} & \textbf{Value} & \textbf{Description} \\
+\hline
+R\_X86\_64\_64 & 1 & 64-bit absolute \\
+\hline
+R\_X86\_64\_PC32 & 2 & 32-bit PC-relative \\
+\hline
+R\_X86\_64\_GOT32 & 3 & 32-bit GOT offset \\
+\hline
+R\_X86\_64\_PLT32 & 4 & 32-bit PLT-relative \\
+\hline
+R\_X86\_64\_GOTPCREL & 9 & GOT + PC-relative \\
+\hline
+\end{tabular}
+
+\subsection{Viewing Relocations}
+
+\begin{lstlisting}[language=bash]
+# View relocations
+readelf -r object.o
+objdump -r object.o
+\end{lstlisting}
+
+\section{Dynamic Linking Structures}
+
+\subsection{The .dynamic Section}
+
+The \texttt{.dynamic} section contains an array of entries for the dynamic linker:
+
+\begin{lstlisting}[language=C]
+typedef struct {
+    int64_t  d_tag;   // Type
+    union {
+        uint64_t d_val;  // Integer value
+        uint64_t d_ptr;  // Address value
+    } d_un;
+} Elf64_Dyn;
+\end{lstlisting}
+
+\subsection{Global Offset Table (GOT)}
+
+The GOT contains addresses of external symbols, filled in by the dynamic linker.
+
+\subsection{Procedure Linkage Table (PLT)}
+
+The PLT contains stubs for calling external functions.
+
+\subsection{Viewing Dynamic Info}
+
+\begin{lstlisting}[language=bash]
+# View dynamic section
+readelf -d program
+
+# View needed libraries
+ldd program
+\end{lstlisting}
+
+\section{Practical ELF Analysis}
+
+\subsection{Identifying File Types}
+
+\begin{lstlisting}[language=bash]
+file program
+# Output: program: ELF 64-bit LSB shared object, x86-64, ...
+\end{lstlisting}
+
+\subsection{Finding Entry Point}
+
+\begin{lstlisting}[language=bash]
+readelf -h program | grep Entry
+# Output: Entry point address: 0x1060
+\end{lstlisting}
+
+\subsection{Finding String Constants}
+
+\begin{lstlisting}[language=bash]
+strings program
+strings -t x program   # With hex offset
+\end{lstlisting}
+
+\subsection{Checking Security Features}
+
+\begin{lstlisting}[language=bash]
+# Check for stack executable (NX bit)
+readelf -l program | grep GNU_STACK
+
+# Check for RELRO
+readelf -l program | grep GNU_RELRO
+
+# Check for PIE (position-independent)
+file program | grep shared
+readelf -h program | grep Type
+\end{lstlisting}
+
+\section{ELF Tools Summary}
+
+\begin{tabular}{|l|l|}
+\hline
+\textbf{Tool} & \textbf{Purpose} \\
+\hline
+\texttt{readelf} & Comprehensive ELF analysis \\
+\hline
+\texttt{objdump} & Disassembly and section viewing \\
+\hline
+\texttt{nm} & Symbol table viewing \\
+\hline
+\texttt{strings} & Extract string constants \\
+\hline
+\texttt{strip} & Remove symbols \\
+\hline
+\texttt{ldd} & Show library dependencies \\
+\hline
+\texttt{file} & Quick file type identification \\
+\hline
+\end{tabular}
+
+\section{Key Takeaways}
+
 \begin{enumerate}
-  \item ELF header
-  \item Section header table
-  \item Program header table
-  \item Symbol table and string tables
-  \item Relocation entries
-  \item Static vs dynamic ELF
+    \item \textbf{ELF has two views}: Linking view (sections) for linkers, execution view (segments) for loaders.
+    \item \textbf{The ELF header is the roadmap}: It points to the program header table and section header table.
+    \item \textbf{Sections contain code and data}: \texttt{.text} for code, \texttt{.data} for initialized data, \texttt{.bss} for uninitialized data.
+    \item \textbf{Program headers describe memory mapping}: PT\_LOAD segments are loaded into memory by the loader.
+    \item \textbf{Symbols name locations}: The symbol table maps names to addresses and contains binding/type information.
+    \item \textbf{Relocations enable linking}: They tell the linker where to fill in final addresses.
+    \item \textbf{Dynamic structures enable runtime linking}: GOT, PLT, and .dynamic work together for shared library support.
+    \item \textbf{Tools are your friends}: \texttt{readelf}, \texttt{objdump}, and \texttt{nm} reveal everything about ELF files.
 \end{enumerate}
 
-\section{Content Plan}
-\begin{itemize}
-  \item Identify magic bytes, class, endianness, and ABI fields.
-  \item Section headers: names, offsets, sizes, and flags.
-  \item Program headers: loadable segments and memory mapping.
-  \item Symbol tables: bindings, visibility, and section index.
-  \item Relocations: addends, types, and targets.
-  \item Differences between static and dynamic binaries.
-\end{itemize}
+\section{Looking Ahead}
 
-\section{Key Terms}
-\begin{itemize}
-  \item ELF header
-  \item section header table
-  \item program header table
-  \item relocation
-\end{itemize}
-
-\section{Diagrams Planned}
-\begin{figure}[h]
-  \centering
-  \fbox{\parbox{0.9\linewidth}{ELF file layout diagram placeholder.}}
-  \caption{Planned ELF file layout diagram.}
-\end{figure}
-
-\begin{figure}[h]
-  \centering
-  \fbox{\parbox{0.9\linewidth}{Section vs program header mapping diagram placeholder.}}
-  \caption{Planned section vs program header mapping diagram.}
-\end{figure}
-
-\section{Experiment}
-See elf-format-deep-dive-exp/elf-format-deep-dive-exp.tex in this chapter.
+Now that we understand the ELF format, we can explore how the linker uses this information to combine object files into executables. In Chapter 6, we'll cover symbol resolution, relocation application, and the complete linking process.

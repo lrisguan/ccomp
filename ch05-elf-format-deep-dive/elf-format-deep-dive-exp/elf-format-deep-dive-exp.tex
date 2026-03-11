@@ -1,51 +1,92 @@
-\begin{experiment}
-\textbf{Objective}
+\section{Experiment: ELF Format Analysis}
+
+\subsection{Objective}
+Dissect ELF files to understand their structure, including headers, sections, segments, symbols, and relocations.
+
+\subsection{Setup Requirements}
 \begin{itemize}
-  \item Use readelf to examine the ELF header, sections, segments, symbols, and relocations.
+\item binutils (readelf, objdump, nm, strings)
+\item GCC compiler
+\item Linux environment
 \end{itemize}
 
-\textbf{Setup requirements}
-\begin{itemize}
-  \item gcc or clang installed.
-  \item binutils tools (readelf).
-\end{itemize}
+\subsection{Part 1: ELF Header Analysis}
 
-\textbf{Step-by-step commands}
+Create a simple program and examine the ELF header:
+
+\begin{lstlisting}[language=bash]
+gcc simple.c -o simple
+readelf -h simple
+xxd simple | head -1
+\end{lstlisting}
+
+\subsection{Part 2: Section Analysis}
+
+List all sections and examine specific ones:
+
+\begin{lstlisting}[language=bash]
+readelf -S simple
+objdump -h simple
+objdump -d -j .text simple | head -20
+readelf -x .rodata simple
+\end{lstlisting}
+
+\subsection{Part 3: Program Headers (Segments)}
+
+View program headers and identify loadable segments:
+
+\begin{lstlisting}[language=bash]
+readelf -l simple
+readelf -l simple | grep -A1 LOAD
+readelf -l simple | grep GNU_STACK
+\end{lstlisting}
+
+\subsection{Part 4: Symbol Table Deep Dive}
+
+Create a file with various symbols and examine:
+
+\begin{lstlisting}[language=bash]
+gcc -c symbols.c -o symbols.o
+readelf -s symbols.o
+nm symbols.o
+nm -S symbols.o
+\end{lstlisting}
+
+\subsection{Part 5: Dynamic Linking Analysis}
+
+View dynamic section and library dependencies:
+
+\begin{lstlisting}[language=bash]
+readelf -d simple
+ldd simple
+objdump -d -j .plt simple
+\end{lstlisting}
+
+\subsection{Part 6: Relocation Analysis}
+
+Create an object file with relocations and view them:
+
+\begin{lstlisting}[language=bash]
+gcc -c relocs.c -o relocs.o
+readelf -r relocs.o
+objdump -r -d relocs.o
+\end{lstlisting}
+
+\subsection{Part 7: Comparing Object File vs Executable}
+
+\begin{lstlisting}[language=bash]
+gcc -c simple.c -o simple.o
+gcc simple.c -o simple
+readelf -S simple.o | head -20
+readelf -S simple | head -20
+\end{lstlisting}
+
+\subsection{Questions for Reader}
+
 \begin{enumerate}
-  \item Build a small executable:
-\begin{lstlisting}[language=bash]
-gcc -o hello hello.c
-\end{lstlisting}
-  \item Inspect the ELF header:
-\begin{lstlisting}[language=bash]
-readelf -h hello
-\end{lstlisting}
-  \item Inspect section headers:
-\begin{lstlisting}[language=bash]
-readelf -S hello
-\end{lstlisting}
-  \item Inspect program headers:
-\begin{lstlisting}[language=bash]
-readelf -l hello
-\end{lstlisting}
-  \item Inspect symbols and relocations:
-\begin{lstlisting}[language=bash]
-readelf -s -r hello
-\end{lstlisting}
+\item What does the ELF magic number \texttt{7f 45 4c 46} represent?
+\item How many sections does your executable have? How many segments?
+\item In the symbols.c example, which symbols are undefined?
+\item How does the PLT enable lazy binding?
+\item What is the difference between \texttt{R\_X86\_64\_64} and \texttt{R\_X86\_64\_PC32}?
 \end{enumerate}
-
-\textbf{Expected output explanation}
-\begin{itemize}
-  \item The ELF header identifies class, endianness, and ABI.
-  \item Section headers show how data is organized.
-  \item Program headers show loadable segments.
-  \item Symbol and relocation tables show linkage metadata.
-\end{itemize}
-
-\textbf{Questions for reader}
-\begin{enumerate}
-  \item Which sections are mapped into memory at runtime?
-  \item Why do some binaries have no relocation entries?
-  \item How does a PIE binary change the program headers?
-\end{enumerate}
-\end{experiment}

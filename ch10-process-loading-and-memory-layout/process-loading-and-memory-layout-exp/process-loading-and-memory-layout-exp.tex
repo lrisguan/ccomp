@@ -1,41 +1,87 @@
-\begin{experiment}
-\textbf{Objective}
+\section{Experiment: Process Loading and Memory Layout}
+
+\subsection{Objective}
+Explore how programs are loaded into memory and understand virtual memory layout.
+
+\subsection{Setup Requirements}
 \begin{itemize}
-  \item Observe the runtime memory layout of a process.
+\item Linux environment
+\item GCC compiler
+\item /proc filesystem access
 \end{itemize}
 
-\textbf{Setup requirements}
-\begin{itemize}
-  \item Linux or WSL.
-  \item pmap or /proc available.
-\end{itemize}
+\subsection{Part 1: Examining Process Memory Maps}
 
-\textbf{Step-by-step commands}
+Create a program that displays its memory map:
+
+\begin{lstlisting}[language=C]
+#include <stdio.h>
+
+int global_init = 42;
+int global_uninit;
+
+int main(int argc, char** argv) {
+    int local_var = 10;
+    int* heap_var = malloc(100);
+    
+    printf("Code (main):    %p\n", (void*)main);
+    printf("Global init:    %p\n", (void*)&global_init);
+    printf("Global uninit:  %p\n", (void*)&global_uninit);
+    printf("Local (stack):  %p\n", (void*)&local_var);
+    printf("Heap (malloc):  %p\n", (void*)heap_var);
+    
+    // Print memory map
+    system("cat /proc/self/maps | head -20");
+    
+    free(heap_var);
+    return 0;
+}
+\end{lstlisting}
+
+\subsection{Part 2: Running the Program}
+
+\begin{lstlisting}[language=bash]
+gcc show_maps.c -o show_maps
+./show_maps
+\end{lstlisting}
+
+\subsection{Part 3: Stack Growth}
+
+Observe stack growth direction:
+
+\begin{lstlisting}[language=C]
+void func3(void) { int local3 = 30; printf("func3: %p\n", &local3); }
+void func2(void) { int local2 = 20; printf("func2: %p\n", &local2); func3(); }
+void func1(void) { int local1 = 10; printf("func1: %p\n", &local1); func2(); }
+
+int main(void) { func1(); return 0; }
+\end{lstlisting}
+
+\subsection{Part 4: ASLR Check}
+
+Check Address Space Layout Randomization:
+
+\begin{lstlisting}[language=bash]
+cat /proc/sys/kernel/randomize_va_space
+./show_maps | grep main
+./show_maps | grep main
+# Addresses should differ between runs if ASLR is enabled
+\end{lstlisting}
+
+\subsection{Part 5: Segment Permissions}
+
+Check segment permissions in memory map:
+
+\begin{lstlisting}[language=bash]
+./show_maps | grep -E "r-x|rw-|r--" | head -10
+\end{lstlisting}
+
+\subsection{Questions for Reader}
+
 \begin{enumerate}
-  \item Build a simple program:
-\begin{lstlisting}[language=bash]
-gcc -o hello hello.c
-\end{lstlisting}
-  \item Run the program in the background and capture its PID:
-\begin{lstlisting}[language=bash]
-./hello & echo $!
-\end{lstlisting}
-  \item Inspect memory maps:
-\begin{lstlisting}[language=bash]
-cat /proc/<PID>/maps
-\end{lstlisting}
+\item In what order do the different memory regions appear?
+\item When you call nested functions, do the local variable addresses increase or decrease?
+\item Why does ASLR improve security?
+\item What happens when you try to write to read-only memory?
+\item What are the key differences between heap and stack allocation?
 \end{enumerate}
-
-\textbf{Expected output explanation}
-\begin{itemize}
-  \item You will see mappings for text, data, heap, stack, and shared libraries.
-  \item Permissions reveal which regions are executable or writable.
-\end{itemize}
-
-\textbf{Questions for reader}
-\begin{enumerate}
-  \item Which mappings correspond to the main executable?
-  \item Where is the heap located relative to the stack?
-  \item How does ASLR change the addresses between runs?
-\end{enumerate}
-\end{experiment}

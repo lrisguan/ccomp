@@ -1,48 +1,67 @@
-\begin{experiment}
-\textbf{Objective}
+\section{Experiment: Static and Dynamic Libraries}
+
+\subsection{Objective}
+Create, use, and compare static and dynamic libraries in C programs.
+
+\subsection{Setup Requirements}
 \begin{itemize}
-  \item Build both static and dynamic variants and observe runtime dependencies.
+\item GCC compiler
+\item ar (archiver)
+\item Linux environment
 \end{itemize}
 
-\textbf{Setup requirements}
-\begin{itemize}
-  \item gcc or clang installed.
-  \item ar, ldd available (Linux or WSL recommended).
-\end{itemize}
+\subsection{Part 1: Creating a Static Library}
 
-\textbf{Step-by-step commands}
+Create source files and build the library:
+
+\begin{lstlisting}[language=bash]
+gcc -c math_lib.c -o math_lib.o
+ar rcs libmath.a math_lib.o
+ar -t libmath.a
+\end{lstlisting}
+
+\subsection{Part 2: Using a Static Library}
+
+Link against the static library:
+
+\begin{lstlisting}[language=bash]
+gcc main.c -L. -lmath -o static_program
+./static_program
+\end{lstlisting}
+
+\subsection{Part 3: Creating a Shared Library}
+
+Build a shared library with PIC:
+
+\begin{lstlisting}[language=bash]
+gcc -fPIC -c math_lib.c -o math_lib_pic.o
+gcc -shared math_lib_pic.o -o libmath.so
+\end{lstlisting}
+
+\subsection{Part 4: Using a Shared Library}
+
+Link and run with shared library:
+
+\begin{lstlisting}[language=bash]
+gcc main.c -L. -lmath -o shared_program
+LD_LIBRARY_PATH=. ./shared_program
+\end{lstlisting}
+
+\subsection{Part 5: Comparing Sizes}
+
+Compare static vs dynamic linking:
+
+\begin{lstlisting}[language=bash]
+ls -l static_program shared_program
+ldd static_program
+ldd shared_program
+\end{lstlisting}
+
+\subsection{Questions for Reader}
+
 \begin{enumerate}
-  \item Create a small library source:
-\begin{lstlisting}[language=C]
-int add(int a, int b) { return a + b; }
-\end{lstlisting}
-  \item Build static and shared libraries:
-\begin{lstlisting}[language=bash]
-gcc -c -fPIC -o add.o add.c
-ar rcs libadd.a add.o
-gcc -shared -o libadd.so add.o
-\end{lstlisting}
-  \item Build static and dynamic executables:
-\begin{lstlisting}[language=bash]
-gcc -o demo_static main.c -L. -ladd -static
-gcc -o demo_dynamic main.c -L. -ladd -Wl,-rpath,'$ORIGIN'
-\end{lstlisting}
-  \item Inspect runtime dependencies:
-\begin{lstlisting}[language=bash]
-ldd demo_dynamic
-\end{lstlisting}
+\item What are the advantages of static linking?
+\item What are the advantages of dynamic linking?
+\item Why is position-independent code required for shared libraries?
+\item How can you verify which library is being used at runtime?
 \end{enumerate}
-
-\textbf{Expected output explanation}
-\begin{itemize}
-  \item The static binary embeds library code and has no libadd.so dependency.
-  \item The dynamic binary records a dependency that the loader resolves at runtime.
-\end{itemize}
-
-\textbf{Questions for reader}
-\begin{enumerate}
-  \item Why might static linking fail on some systems?
-  \item How does rpath affect loader behavior?
-  \item What changes in binary size between the two builds?
-\end{enumerate}
-\end{experiment}
