@@ -28,12 +28,13 @@ Learners who want a precise, low-level view of how C programs are built and exec
 
 ## How to build the PDF version
 - Install a LaTeX distribution that includes `latexmk`.
-- Run `make` from the project root.
+- Run `make all` from the project root.
 - The final PDF is written to `dist/ccomp-book.pdf`.
 
 ## How to read the online version
 - Open each `chXX-name/chXX-name.md` file in order.
 - Each chapter includes an experiment in `exp/exp.md`.
+- You can also download the pdf from [Here](./assets/ccomp-book.pdf).
 
 ## Contribution guidelines
 - Keep terminology precise and consistent with existing chapters.
@@ -42,8 +43,8 @@ Learners who want a precise, low-level view of how C programs are built and exec
 
 ## Note
 > [!Important]
-> Most of the work is doing by openclaw(claude), copilot formulate a detailed 
-> plan rather I only concept the outline
+> Most of the work is done by openclaw(claude), and copilot formulate a detailed 
+> plan rather I only concept the outline.
 
 ## License suggestion
 MIT
