@@ -46,5 +46,5 @@ Learners who want a precise, low-level view of how C programs are built and exec
 > Most of the work is done by openclaw(claude), and copilot formulate a detailed 
 > plan rather I only concept the outline.
 
-## License suggestion
+## License
 MIT
