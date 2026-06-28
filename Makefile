@@ -1,3 +1,12 @@
+# ccomp
+# Copyright (C) 2026 lrisguan <lrisguan@outlook.com>
+# 
+# This program is released under the terms of the MIT license. 
+# See https://github.com/lrisguan/ccomp/blob/main/LICENSE for more information.
+# 
+# Project homepage: https://github.com/lrisguan/ccomp
+# Description: Deep into the process of C language compilation.
+
 LATEXMK := latexmk
 TEX := ccomp.tex
 DIST := dist
